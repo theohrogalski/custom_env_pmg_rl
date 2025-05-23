@@ -2,13 +2,13 @@ from pettingzoo.utils import parallel_to_aec
 from pettingzoo.utils.env import ParallelEnv
 import numpy as np
 from gymnasium import spaces
+from pettingzoo.test import parallel_api_test
 
 class SimpleGridWorld(ParallelEnv):
-    metadata = {"render_mode": ["human"], "name": "simple_grid"}
-
-    def __init__(self, num_agents:int, max_steps:int, num_targets:int, view_size:int, grid_size=(None,None)):
-        self.grid_size = grid_size
-        self.num_agents = num_agents
+    metadata = { "name": "pmg_env","render_modes": ["human"],}
+    def __init__(self, num_agents=1, max_steps=100, num_targets=5, view_size=2, seed=None, grid_size=(10,10),render_mode=None):
+        self.grid_size = grid_size 
+        self.render_mode = render_mode or "human"
         self.max_steps = max_steps
         self.agent_names = [f"agent_{i}" for i in range(num_agents)]
         self.target_names = [f"target_{j}" for j in range(num_targets)]
@@ -26,11 +26,13 @@ class SimpleGridWorld(ParallelEnv):
         self.uncertainty:int = {}
         self.current_step = None
         self.agents = None
+        self.np_random = np.random.default_rng(seed)
 
     def reset(self, seed=None, options=None):
-        super().reset(seed=seed)
         self.current_step = 0
         # activate the first K agents
+        if seed is not None :
+            self.np_random = np.random.default_rng(seed)
         self.agents = self.agent_names.copy()
         # spawn positions
         for name in self.agents:
@@ -38,22 +40,24 @@ class SimpleGridWorld(ParallelEnv):
                 low=[0,0], high=self.grid_size, size=(2,)
             )
         self.targets = self.target_names.copy()
-        for name in self.targets:
+        for target in self.targets:
             #if you want a custom target setup plug in here
-            self.tPositions[name] = self.np_random.integers(
+            self.tPositions[target] = self.np_random.integers(
                 low=[0,0], high=self.grid_size, size = (2,)
             )
         # setting the uncertainty value
         for name in self.uncertainty:
             self.uncertainty[name] = 0
-        obs = {name: self.positions[name].copy().astype(int) for name in self.agents}
+        obs = {name: self.agentPositions[name].copy().astype(int) for name in self.agents}
         infos = {name: {} for name in self.agents}
         return obs, infos
 
     def step(self, actions):
         self.current_step += 1
-        obs, obs_space_x, obs_space_y, rewards, dones, infos, targets_in_space = {}, {}, {}, {}, {},{}, []
+        obs, rewards, dones, infos, targets_in_space = {}, {}, {},{}, []
         radius = 2
+        obs:dict = {}
+        # actions has each agent and their corresponding action
         for name, act in actions.items():
             x, y = self.agentPositions[name]
             if act == 0:    # up
@@ -68,21 +72,38 @@ class SimpleGridWorld(ParallelEnv):
                 pass
             
             self.agentPositions[name] = np.array([x, y])
-            # first, the space around the agent is defined   
-            obs_space_x[name] = [max(0,x-radius), min(self.grid_size,x+radius)]
-            obs_space_y[name] = [max(0,y-radius),min(self.grid_size,y+radius)]
-            # Look at each target and if it is within rang
+            obs_space_x, obs_space_y = {}, {}
+            # first, the space around the agent is defined 
+            low_x  = max(0, x-radius)
+            high_x = min(self.grid_size[1], x+radius)
+            low_y = max(0, y-radius)
+            high_y = min(self.grid_size[1], y+radius)
+            obs_space_x[name] = (low_x, high_x)
+            obs_space_y[name] = (low_y,high_y)
+            # Look at each target and if it is within range
+            i:int=0
             for target in self.target_names: 
+                i+=1
                 xt, yt = self.tPositions[target]
-                if xt>=obs_space_x[name][0] and xt<=obs_space_x[name][1] and yt>=obs_space_y[name][0] and yt<=obs_space_y[name][1] :
-                    targets_in_space[name].append(target)
+                lowx, highx = obs_space_x[name]
+                lowy, highy = obs_space_y[name]
+                if xt>=lowx and xt<=highx and yt>=lowy and yt<=highy :
+                    targets_in_space.append(target)
+            target_dict = { agent: {} for agent in self.agents }
+            if(len(targets_in_space)>0) :
+                for b in range(len(targets_in_space)) :
+                    target_dict[name][b] = targets_in_space[b]
 
-            def meanUncertaintyValue(self, targets_in_space) :
-                uncertaintysum:int
-                for target in targets_in_space :
-                    uncertaintySum+=target.uncertainty
-                # uncertaintySum
-            rewards[name] = meanUncertaintyValue(targets_in_space[name])
+            def meanUncertaintyValue(targets, name) -> float:
+                uncertainty_sum = 0.0
+                for t in targets:
+                    uncertainty_sum += t.uncertainty
+                print(f"{name} uncertainty:", uncertainty_sum)
+                return uncertainty_sum
+
+            # the observations are the uncertainty values, the rewards are the inverse
+            obs[name] = meanUncertaintyValue(target_dict[name], name)
+            rewards[name] = 1/meanUncertaintyValue(target_dict[name], name)
             dones[name] = self.current_step >= self.max_steps
             infos[name] = {}
 
@@ -106,5 +127,6 @@ class SimpleGridWorld(ParallelEnv):
         pass
 
 # AEC wrapper
-SimpleGridWorldAEC = parallel_to_aec(SimpleGridWorld)
+gridWorld = SimpleGridWorld(render_mode="human")
 
+parallel_api_test(gridWorld)
