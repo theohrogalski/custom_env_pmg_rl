@@ -67,10 +67,11 @@ class SimpleGridWorld(ParallelEnv):
         for name, act in actions.items():
             # --- move agent ---
             x, y = self.agentPositions[name]
-            if act == 0:    y = min(y + 1, self.grid_size[1] - 1)
-            elif act == 1:  y = max(y - 1, 0)
-            elif act == 2:  x = max(x - 1, 0)
-            elif act == 3:  x = min(x + 1, self.grid_size[0] - 1)
+            if act == 0:    y = min(y + 1, self.grid_size[1] - 1) #up
+            
+            elif act == 1:  y = max(y - 1, 0) #down
+            elif act == 2:  x = max(x - 1, 0) #left 
+            elif act == 3:  x = min(x + 1, self.grid_size[0] - 1) #right
             # act == 4: stay
             self.agentPositions[name] = np.array([x, y])
 
@@ -125,8 +126,11 @@ class SimpleGridWorld(ParallelEnv):
 
     def close(self):
         pass
-
-parallel_api_test(SimpleGridWorld(n_agents=3),num_cycles=1_000_000)
-gridworld = SimpleGridWorld(render_mode="human")
-gridworld.reset()
-gridworld.step(actions={"agent_0":1})
+    def final_cost(self) -> float :
+        # This is Jt, need to run at the end to determine Jt
+        sum:float=0
+        for target in self.target_names:
+            sum+=self.uncertainty[target]
+        if sum<=96 :
+            print("Beat target")
+        return sum
