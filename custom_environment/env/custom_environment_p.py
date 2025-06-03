@@ -13,8 +13,9 @@ class SimpleGridWorld(ParallelEnv):
         self.possible_agents = [f"agent_{i}" for i in range(n_agents)]
         self.target_names = [f"target_{j}" for j in range(num_targets)]
         self.agentMemory = {}
+        
         self.observation_spaces = {
-            name: spaces.Discrete(10001) # max uncertainty
+            name: spaces.Discrete(100) # max uncertainty
             for name in self.possible_agents
         }
         self.action_spaces = {
@@ -37,7 +38,6 @@ class SimpleGridWorld(ParallelEnv):
 
         # spawn positions
         for name in self.possible_agents:
-            print(f"name is {name}")
             self.agentPositions[name] = self.np_random.integers(
                 low=[0,0], high=self.grid_size, size=(2,)
             )
