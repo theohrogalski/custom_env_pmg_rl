@@ -1,4 +1,4 @@
-from custom_environment_p import SimpleGridWorld
+from custom_environment_p import GridWithMemory
 import pettingzoo
 from pettingzoo.test import parallel_api_test
 import numpy.random as npr
@@ -8,11 +8,11 @@ from math import trunc
 
 logger = logging.getLogger(__name__)
 
-gridworld = (SimpleGridWorld())
+gridworld = (GridWithMemory())
 gridworld.reset()
 gridworld.render()
 def random_test(num_cycles:int,log_name:str) -> None :
-    gridworld = (SimpleGridWorld())
+    gridworld = (GridWithMemory())
     logging.basicConfig(filename=f"{log_name}.log", level=logging.INFO)
     gridworld.reset()
     for i in range(num_cycles) :
@@ -20,7 +20,8 @@ def random_test(num_cycles:int,log_name:str) -> None :
         for j in range (100) :
             action=npr.randint(low=0, high=4)
             gridworld.step(actions={"agent_0":action})
-        logger.info(gridworld.final_cost())
+            #gridworld.render()
+            logger.info(gridworld.render())
 
 num_threads=8
 threads = []
@@ -28,7 +29,7 @@ threads = []
 for i in range(num_threads) :
     t=multiprocessing.Process(target=random_test, kwargs={"num_cycles":125,"log_name":"logname"})
     threads.append(t)
-print(threads)
+#print(threads)
 
 
 time_one = time.time()
