@@ -29,24 +29,24 @@ class GridWithMemory(ParallelEnv):
         self.agentwise_grid = {f"agent_{agent}":empty_grid
                                for agent in range(n_agents)}
         # The observation space is defined 
-        self.observation_spaces = {
-                name: {
-                "grid_state": spaces.Box(
-                    low=0,
-                    high=ceil(grid_size[0] * grid_size[1] * 0.5),
-                    shape=(2,),
-                    dtype=np.float32
-                ),
-                "agent_position": spaces.Box(
-                    low=0,
-                    high=grid_size[0] - 1,
-                    shape=(2,),  # assuming (x, y)
-                    dtype=np.int32
-                    ),
-                    }
+        self.observation_spaces = spaces.Dict({
+    name: spaces.Dict({
+        "grid_state": spaces.Box(
+            low=0,
+            high=ceil(grid_size[0] * grid_size[1] * 0.5),
+            shape=(2,),
+            dtype=np.float32
+        ),
+        "agent_position": spaces.Box(
+            low=0,
+            high=grid_size[0] - 1,
+            shape=(2,),  # assuming (x, y)
+            dtype=np.int32
+        ),
+    })
     for name in self.possible_agents
-                                }
-        self.rewards = {agent:0
+})
+        rewards = {agent:0
                     for agent in self.possible_agents
                         }
             # These uncertainties are a tuple of possible values. When observed,
@@ -65,9 +65,8 @@ class GridWithMemory(ParallelEnv):
 
     def reset(self, seed=None, options=None):
         self.agents = self.possible_agents.copy()
-
         self.grid_state = np.full(self.grid_size,fill_value=0.5,dtype=np.float16)
-       # print(self.grid_state)
+       #print(self.grid_state)
         #print(self.grid_state)
         #[-1,-1] means unknown, [0.5,0.5] means empty
         self.current_step = 0
@@ -93,7 +92,7 @@ class GridWithMemory(ParallelEnv):
             
             #print(self.grid_state)
             # This sets the dynamic uncertainty update up
-       # print(self.grid_state)    
+       #print(self.grid_state)    
         # setting the uncertainty value
         for target in self.target_names:
             self.uncertainty[target] = 0
@@ -103,15 +102,24 @@ class GridWithMemory(ParallelEnv):
         return obs, infos
 
     def step(self, actions):
+         
+        #print(self.agents)
+        rewards = {}
+        terminations = {}
+        truncations = {}
+        
+        infos = {}
+        obs = {}
         self.current_step += 1
         #print(f"self2 possible agents 0 = {self.possible_agents[0]}")
         self.total_unc = sum(self.uncertainty.values())
-        terminations = {}
-        truncations = {}
-        infos = {}
+        if self.current_step == 2:
+            assert self.total_unc>0, "uncertainty never went above 0"
 
         # 1) Process each agent
         for name, act in actions.items():
+            truncations[name] = False
+            rewards[name] = 0
             #old_memory = self.agentMemory[name]
 
             # --- move agent ---
@@ -162,18 +170,27 @@ class GridWithMemory(ParallelEnv):
                     # as well as the distance from each. 
                     # For example, it should prioritize a wide ranging value versus a low uncertainty one near it
                 # --- flags for this agent ---
+            
             terminations[name] = False
-            truncations[name]  = True
+            #print(f"current step is {self.current_step} and max steps is {self.max_steps}")
             if (self.current_step >= self.max_steps):
-                if self.total_unc >68:
-                    self.rewards[name] = -self.total_unc
+                #print("current greater or equal to step")
+                if self.total_unc > 68:
+                    try:
+                        print(neg_tot_unc:=(0-self.total_unc))
+                        rewards[name] = (neg_tot_unc)
+
+                    except:
+                        print("rewards failed to set due to exception")
                     # WIP For target in known grid, sum the uncertainty 
                     # ALSO ADD IN THE AGENT POSITIONS 
                 else:
-                    self.rewards[name] = 1
+                    rewards[name] = 1
 
                 truncations[name]  = True
+                #print(f"truncations for {name} is {truncations[name]}")
 
+                #print(f"all truncations is equal to {(all(truncations.values()))}")
            
             infos[name] = self.agentPositions[name]
             obs = {
@@ -199,27 +216,35 @@ class GridWithMemory(ParallelEnv):
         #print(self.agentwise_grid[name])
         
         #print(f"post loop: {self.grid_state}")
-        self.agents = [
-            a for a in self.agents
-            if not (terminations.get(a, False) or truncations.get(a, False))
-        ]
+
         
     # 4) Set the global “episode over” flag
         terminations["__all__"] = False
-        truncations["__all__"]  = len(self.agents) == 0
-        return obs, terminations, self.rewards,truncations, infos
-
-    def render(self):
-        print(self.grid_state)
+        try:
+            truncations["__all__"] = all(truncations.values())
+        except:
+            print("truncations all excepted")
+        finally:
+            if(truncations["__all__"]):
+                print("truncations all equal true")
+                print(f"reward is {rewards}")
+                #print(f"{self.agents} are current agents in memory")
+       #print(f"rewards, terminations, truncations, infos: {rewards} {terminations} {truncations} {infos}")
+        self.agents = [agent for agent in self.agents if not truncations[agent]]
         
+        return obs, rewards, terminations, truncations, infos
+
+    def render(self) :
+        #print("from render")
+        print(self.grid_state)
+
     def close(self):
         pass
     def observation_space(self, agent_id):
+        if self.observation_spaces[agent_id]  is None:
+            self.observation_spaces[agent_id] = [{},{}]
         return self.observation_spaces[agent_id]
-    def action_space(self, agent):
-        return self.action_spaces[agent]
-    def final_cost(self):
-        print(self.rewards)
- 
-env = GridWithMemory()
-parallel_api_test(env)
+    def action_space(self, agent_id):
+        print(agent_id)
+        return self.action_spaces[agent_id]
+    
