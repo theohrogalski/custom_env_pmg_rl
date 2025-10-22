@@ -25,27 +25,27 @@ class GridWithMemory(ParallelEnv):
             name: spaces.Discrete(5) # up right left down stay
             for name in self.possible_agents
                             }
-        empty_grid = np.full(shape=self.grid_size +(2,),fill_value=-1,dtype=np.float16)
-        self.agentwise_grid = {f"agent_{agent}":empty_grid
-                               for agent in range(n_agents)}
+        small_dict = {}
+        big_dict = {}
+        for agent in self.possible_agents:
+            small_dict={}
+            
+            for sub_agent in self.possible_agents:
+                if sub_agent is not agent:
+                    small_dict[sub_agent] = []
+            big_dict[agent] = small_dict
+        # gives agent to other agent to times
+        agents_seen = big_dict
+        empty_grid = np.full(shape=self.grid_size + (2,),fill_value=-1,dtype=np.float16)
+        self.agentwise_grid = {agent:(empty_grid,agents_seen[agent])
+                               for agent in self.possible_agents}
         # The observation space is defined 
-        self.observation_spaces = spaces.Dict({
-    name: spaces.Dict({
-        "grid_state": spaces.Box(
-            low=0,
-            high=ceil(grid_size[0] * grid_size[1] * 0.5),
-            shape=(2,),
-            dtype=np.float32
-        ),
-        "agent_position": spaces.Box(
-            low=0,
-            high=grid_size[0] - 1,
-            shape=(2,),  # assuming (x, y)
-            dtype=np.int32
-        ),
-    })
-    for name in self.possible_agents
-})
+        # for each agent 
+        
+        self.observation_space = {
+            "grid_state": spaces.Box(low=-1.0, high=126.0, shape=(10, 10, 2), dtype=np.float32),
+            "agent_position": spaces.Box(low=0, high=9, shape=(2,), dtype=np.int32)
+            }
         rewards = {agent:0
                     for agent in self.possible_agents
                         }
@@ -62,7 +62,7 @@ class GridWithMemory(ParallelEnv):
         self.uncertainty = {}
         self.current_step = None
         self.np_random = np.random.default_rng(seed)
-
+        self.rewards = {agent:0 for agent in self.possible_agents}
     def reset(self, seed=None, options=None):
         self.agents = self.possible_agents.copy()
         self.grid_state = np.full(self.grid_size,fill_value=0.5,dtype=np.float16)
@@ -102,7 +102,7 @@ class GridWithMemory(ParallelEnv):
         return obs, infos
 
     def step(self, actions):
-         
+        
         #print(self.agents)
         rewards = {}
         terminations = {}
@@ -126,10 +126,16 @@ class GridWithMemory(ParallelEnv):
             x, y = self.agentPositions[name]
             if act == 0:    y = min(y + 1, self.grid_size[1] - 1) #up
             
-            elif act == 1:  y = max(y - 1, 0) #down
-            elif act == 2:  x = max(x - 1, 0) #left 
-            elif act == 3:  x = min(x + 1, self.grid_size[0] - 1) #right
+            elif act == 1:  
+                y = max(y - 1, 0) #down
+            elif act == 2:  
+                x = max(x - 1, 0) #left
+
+            elif act == 3:  
+                x = min(x + 1, self.grid_size[0] - 1) #right
+
             elif act == 4: pass
+            self.agentPositions[name] = x,y
             # --- compute view & uncertainty-based reward ---
             radius = 3
             low_x, high_x = max(0, x-radius), min(self.grid_size[0], x+radius)
@@ -142,28 +148,38 @@ class GridWithMemory(ParallelEnv):
                     observed_value= self.grid_state[i, j]
 
             # --- update each agent's internal map ---    
+
                     # internal map  # current agent  # the ith value [0.5,0.5 if empty]
-                    if np.array_equal(self.agentwise_grid[name][i, j], [-1, -1]):
-                        self.agentwise_grid[name][i, j] = [observed_value,observed_value]
+
+                    if np.array_equal(self.agentwise_grid[name][0][i, j], [-1, -1]):
+                        self.agentwise_grid[name][0][i, j] = [observed_value,observed_value]
                         #print(self.agentwise_grid[name])
-                    for agent in self.possible_agents:
-                        if self.agentPositions[agent][0] in in_view_x and  self.agentPositions[agent][1] in in_view_y:
-                            self.agentwise_grid[name][self.agentPositions[agent][0]][self.agentPositions[agent][1]] += 0.01
                             # --- update the uncertainty value for items not in range ---
-            in_view = set(zip(in_view_x, in_view_y))
+            print(f"in view x {in_view_x}")
+            print(f"in view y {in_view_y}")
+            in_view:list=[]
+            for x in in_view_x:
+                for y in in_view_y:
+                    in_view.append(np.array([x,y]))
+            in_view= np.array(in_view)
             for x in range(len(self.grid_size)):        
                 for y in range(len(self.grid_size)):
-                    if (self.agentwise_grid[name][x, y][0] != -1 and
-                         self.agentwise_grid[name][x, y][1] != 0.5 and
-                             (x, y) not in in_view
+                    if (self.agentwise_grid[name][0][x, y][0] != -1 and
+                         self.agentwise_grid[name][0][x, y][1] != 0.5 and
+                            (x, y) not in in_view
                         ):
                         #This range is the distribution of possible uncertainty values at this point. 
                         new_pos = np.add([x, y], [-1, 1])	
-                        self.agentwise_grid[name][tuple(new_pos)]
+                        self.agentwise_grid[name][0][tuple(new_pos)]
 
-                        if self.agentwise_grid[name][x, y][0] < 0:
-                            self.agentwise_grid[name][x, y][0] = 0
-            
+                        if self.agentwise_grid[name][0][x, y][0] < 0:
+                            self.agentwise_grid[name][0][x, y][0] = 0
+            for agents in self.possible_agents:
+                if agents != name :
+                    print(self.agentPositions[name])
+                    print(in_view)
+                    if in_view.__contains__(self.agentPositions[agents]) :
+                        self.agentwise_grid[name][1][agents].append(np.array(self.agentPositions[agents]))
                 
                     # The reward needs to prioritize the local values 
                     # while taking into account the uncertainty ranges at the points in its learned map
@@ -193,13 +209,6 @@ class GridWithMemory(ParallelEnv):
                 #print(f"all truncations is equal to {(all(truncations.values()))}")
            
             infos[name] = self.agentPositions[name]
-            obs = {
-                    name: {
-                    "grid_state": self.agentwise_grid[name],
-                    "agent_position": self.agentPositions[name]
-                    }
-                    for name in self.agents
-                        }
             
         # 2) Update all target uncertainties
         for t in self.target_names:
@@ -231,20 +240,26 @@ class GridWithMemory(ParallelEnv):
                 #print(f"{self.agents} are current agents in memory")
        #print(f"rewards, terminations, truncations, infos: {rewards} {terminations} {truncations} {infos}")
         self.agents = [agent for agent in self.agents if not truncations[agent]]
-        
+        obs = {agent: (self.observe)(agent) for agent in self.agents}
         return obs, rewards, terminations, truncations, infos
-
+    
     def render(self) :
         #print("from render")
         print(self.grid_state)
 
     def close(self):
         pass
-    def observation_space(self, agent_id):
-        if self.observation_spaces[agent_id]  is None:
-            self.observation_spaces[agent_id] = [{},{}]
-        return self.observation_spaces[agent_id]
+    def observe(self, name):
+        return {
+            "grid_state": self.agentwise_grid[name][0],     # shape = (10, 10, 2)
+            "agent_position": np.array(self.agentPositions[name], dtype=np.int32)
+        }
     def action_space(self, agent_id):
         print(agent_id)
         return self.action_spaces[agent_id]
     
+env = GridWithMemory( 
+    # Default settings
+)
+env.reset()
+
