@@ -9,7 +9,7 @@ import graphviz
 import random
 from matplotlib.animation import FuncAnimation
 import matplotlib.pyplot as plt
-from stable_baselines3 import DQN,PPO, A2C
+from stable_baselines3 import DQN, PPO, A2C
 from pettingzoo.utils import aec_to_parallel
 import supersuit as ss
 import stable_baselines3
@@ -22,15 +22,19 @@ import functools
 from pettingzoo.utils.agent_selector import agent_selector
 from pettingzoo.utils import wrappers
 import time
-print(plt.get_backend())
+#print(plt.get_backend())
 
 class GraphEnv(pettingzoo.AECEnv):
     def __init__(self, num_nodes=10, num_agents=2, seed=1,render_mode="human"):
         self.seed=seed
-        self.x=[]
+        plt.subplot(2,1,1)
+        plt.clf()
+        plt.subplot(2,1,2)
+        plt.clf()
+        self.lx=[]
         self.render_mode = 2
         self.render_flag = False
-        self.y=[]
+        self.ly=[]
         self.metadata = {
         "render_modes": ["human"],   # or ["human"] if you want GUI rendering
         "name": "graph_env_v0",
@@ -56,7 +60,7 @@ class GraphEnv(pettingzoo.AECEnv):
         self.max_uncertainty:int = 100
         self.mistakes = {agent:0 for agent in self.possible_agents}
         self.node_unc = {node:0 for node in self.graph}
-        print(f"node uncertainty is {self.node_unc}")
+        #print(f"node uncertainty is {self.node_unc}")
         self.rewards = {agent:0 for agent in self.agents}
         self.infos = {agent:{} for agent in self.agents}
         self.covered = set()
@@ -64,11 +68,18 @@ class GraphEnv(pettingzoo.AECEnv):
         self.mental_map= {agent:nx.Graph() for agent in self.possible_agents}
     def reset(self, options=None,seed=None):
         self.covered = set()
+        self.num_moves=0
         self.node_unc = {node:0 for node in self.graph}
         for agent in self.possible_agents:
             self.state[agent] = random.randint(0,self.num_nodes-1)
             self.rewards[agent] = 0
             self._cumulative_rewards[agent] = 0
+            self.lx = []
+            self.ly = []
+            plt.subplot(2,1,1)
+            plt.clf()
+            plt.subplot(2,1,2)
+            plt.clf()
 
             self.infos[agent] = {}
         self.agents = (self.possible_agents).copy()
@@ -93,15 +104,18 @@ class GraphEnv(pettingzoo.AECEnv):
     def step(self, action):
         for node in self.graph:
             #print(node)
-            if node not in {1,3,4,5,7,9}:
-                continue
             if self.node_unc[node]>=self.max_uncertainty:
                 continue
             #print(self.state)
-            if (np.int64(node) in self.state.values()):
+            elif (np.int64(node) in self.state.values()):
+                
                 #print("found")
                 if self.node_unc[node]>0:
-                    self.node_unc[node] -= 1
+                    self.node_unc[node] -= list(self.state.values()).count(np.int64(node))
+                    #print("reduced uncertainty")
+                if self.node_unc[node]<0:
+                    self.node_unc[node] = 0
+                
             else:
                 self.node_unc[node] += 1
         if (
@@ -128,11 +142,11 @@ class GraphEnv(pettingzoo.AECEnv):
         if self._agent_selector.is_last():
             self.num_moves += 1
             
-            print(f"num moves is {self.num_moves}")
-            print(sum(self.node_unc.values()))
+            # print(f"num moves is {self.num_moves}")
+           # print(sum(self.node_unc.values()))
             # The truncations dictionary must be updated for all players.
             self.truncations = {
-                agent: self.num_moves >= 99 for agent in self.agents
+                agent: self.num_moves >= 1000 for agent in self.agents
             }
 
             # observe the current state
@@ -144,7 +158,7 @@ class GraphEnv(pettingzoo.AECEnv):
             # reward giving
         
                 #print(-sum(self.node_unc.values()))
-                self.rewards[i] = -sum(self.node_unc.values())/(self.num_nodes)
+                self.rewards[i] = int(-sum(self.node_unc.values())/(self.num_nodes))
                 #print(self.rewards[i])
         else:
             self._clear_rewards()
@@ -153,17 +167,17 @@ class GraphEnv(pettingzoo.AECEnv):
         # Adds .rewards to ._cumulative_rewards
         
         self._accumulate_rewards()
-        (self.x).append(self.num_moves)
-        (self.y).append(self._cumulative_rewards["agent_0"])
-        
+        (self.lx).append(self.num_moves)
+        (self.ly).append(self._cumulative_rewards["agent_0"])
         if self.render_mode == "human":
             self.render()
     def observe(self, agent):
     # simplest: every agent just sees the global state
         return np.array(self.observations[agent])
     def render(self, total_reward=None):
-        plt.clf()
+        #plt.clf()
         #print(self.state)
+        plt.subplot(2,1,1)
         nx.draw_networkx(self.graph, with_labels=True,pos=nx.spring_layout(self.graph,seed=0),
                 node_color=
                 [(min((list(self.state.values()).count(i)*100)/self.num_agents,0.99),
@@ -172,28 +186,32 @@ class GraphEnv(pettingzoo.AECEnv):
                   ) for i in self.graph.nodes()]
                   
                   )
-        """if self.num_moves>75:    
-            plt.show()"""
-        mngr = plt.get_current_fig_manager()
-        mngr.window.wm_geometry((f"500x500+100+100"))        # TkAgg backend (most common)
+        
+        #print(self.ly)
+        if self.num_moves%50==0:
+            plt.subplot(2,1,2)
+            plt.plot(self.lx,self.ly)
+            plt.pause(1)
+        #mngr = plt.get_current_fig_manager()
+        #mngr.window.wm_geometry((f"500x500+100+100"))        # TkAgg backend (most common)
 
-        plt.ion()
+        #plt.ion()
         # to put it into the upper left corner for example:
-        plt.pause(0.75)
+        #plt.pause(0.75)
 
-        plt.close()
+        #plt.close()
         
         
         
     
         
-env=GraphEnv(num_nodes = 10, num_agents=2)
+env=GraphEnv(num_nodes = 40, num_agents=6)
 
 env = wrappers.OrderEnforcingWrapper(env)        
 parallel_env = aec_to_parallel(env)
 
 vec_env = ss.pettingzoo_env_to_vec_env_v1(parallel_env)
-vec_env = ss.concat_vec_envs_v1(vec_env, 1, num_cpus=1, base_class="stable_baselines3")
+vec_env = ss.concat_vec_envs_v1(vec_env, 1, num_cpus=8, base_class="stable_baselines3")
 vec_env = VecMonitor(vec_env,filename="./log_dir")
 """model = DQN("MlpPolicy", vec_env, verbose=1)
 timestart = time.time()
@@ -206,9 +224,9 @@ model_dqn = DQN("MlpPolicy", vec_env, verbose=1)
 #model_ppo = PPO("MlpPolicy", vec_env, verbose =1)
 mean_reward_dqn,std_reward_dqn= evaluate_policy(model=model_dqn, env=vec_env)
 print(f"mean reward without any learning{mean_reward_dqn}")
-model_dqn.learn(total_timesteps=100,progress_bar=True)
+model_dqn.learn(total_timesteps=300,progress_bar=True)
 #model_ppo.learn(total_timesteps=100, progress_bar=True)
-model_dqn.save("dqn_model_savefile")
+#model_dqn.save("dqn_model_savefile")
 
 
 #model_ppo.save("dqn_save")
@@ -216,3 +234,8 @@ mean_reward_dqn,std_reward_dqn= evaluate_policy(model=model_dqn, env=vec_env)
 #mean_reward_ppo, std_reward_ppo = evaluate_policy(model=model_ppo,env=vec_env)
 print(f"mean reward for dqn is {mean_reward_dqn}")
 #print(f"mean reward for dqn is {mean_reward_ppo}")
+
+print("With num training steps being 100")
+model_dqn.load("./dqn_model_savefile.zip")
+mean_reward_dqn,std_reward_dqn= evaluate_policy(model=model_dqn, env=vec_env)
+print(mean_reward_dqn)
