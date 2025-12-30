@@ -3,97 +3,106 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 import networkx as nx
-import time
-import signal
-import torch
-import graphviz
 import random
 from matplotlib.animation import FuncAnimation
 import matplotlib.pyplot as plt
 from stable_baselines3 import DQN, PPO, A2C
 from pettingzoo.utils import aec_to_parallel
 import supersuit as ss
-import stable_baselines3
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.vec_env import VecMonitor
 from pettingzoo.test import api_test
 import pettingzoo
 from stable_baselines3.common.evaluation import evaluate_policy
 import functools
+import itertools
 from pettingzoo.utils.agent_selector import agent_selector
 from pettingzoo.utils import wrappers
 import time
 #print(plt.get_backend())
 
-class GraphEnv(pettingzoo.AECEnv):
-    def __init__(self, num_nodes=10, num_agents=2, seed=1,render_mode="human"):
+class GraphEnv(pettingzoo.ParallelEnv):
+    def __init__(self, num_nodes=10, num_agents=2, seed=1,render_mode="human", graph_selection=1):
         self.seed=seed
-        plt.subplot(2,1,1)
-        plt.clf()
-        plt.subplot(2,1,2)
-        plt.clf()
-        self.lx=[]
+    
+        
         self.render_mode = 2
         self.render_flag = False
-        self.ly=[]
         self.metadata = {
-        "render_modes": ["human"],   # or ["human"] if you want GUI rendering
+        "render_modes": ["human"],  
         "name": "graph_env_v0",
         "is_parallelizable":True
         }
         self.render_mode=render_mode
         self.np_random_seed = int(np.random.randint(1, 10 + 1))
-        self.graph = nx.cycle_graph(num_nodes)  # simple graph
-        #print(self.graph)
-        self.graph = nx.Graph()
-        edge_list = []
-        # O(N^2) algorithm for even, odd list creation 
-        for i in range(num_nodes):
-            for j in range(num_nodes):
-                if i%2==j%2:
-                    edge = (i,j)
-                    edge_list.append(edge)
-        for i in range(num_nodes):
-            self.graph.add_node((i,0))
-        self.graph.add_edges_from(edge_list)
+        self.graph:nx.Graph = self.select_graph(load_param=graph_selection,loaded_graphml_name="random_graph_ml",)
         self.possible_agents = [f"agent_{k}" for k in range(num_agents)]
         self.total_map_observation = {agent:("") for agent in self.possible_agents}
+        self.agent_position={f"agent_{k}":"node_null" for k in self.possible_agents}
         self.agent_name_mapping = dict(
             zip(self.possible_agents, list(range(len(self.possible_agents))))
         )
-
+        
         self.num_nodes = num_nodes
         self.action_spaces = {agent:spaces.Discrete(num_nodes) for agent in self.possible_agents}  # move to node
-        self.observation_spaces = {agent:gym.spaces.Discrete(num_nodes) for agent in self.possible_agents}
         self.agents = self.possible_agents
         self._cumulative_rewards = {agent:0 for agent in self.agents}
-        self.state = {agent: None for agent in self.agents}
         self.num_moves = 0
         self.max_uncertainty:int = 100
+        self.mmap = {agent:nx.Graph() for agent in self.possible_agents}
         self.mistakes = {agent:0 for agent in self.possible_agents}
-        self.node_unc = {node:0 for node in self.graph}
         #print(f"node uncertainty is {self.node_unc}")
         self.rewards = {agent:0 for agent in self.agents}
         self.infos = {agent:{} for agent in self.agents}
         self.covered = set()
+        self.current_obs = {agent:None for agent in self.possible_agents}
+        self.personal_graph = {agent:None for agent in self.possible_agents}
         #self.per_agent_covered = {agent:set() for agent in self.possible_agents}
+
         self.mental_map= {agent:nx.Graph() for agent in self.possible_agents}
+
+    def select_graph(self, load_param:int, loaded_graphml_name:str, output_name:str="default_name"):
+        if load_param==1:
+            return nx.read_graphml(f"{loaded_graphml_name}.graphml")
+        elif load_param == 0 :
+            self.create_custom_nx_graph(output_name=f"{output_name}")
+            return nx.read_graphml(f"{output_name}.graphml")
+        else:
+            print("empty graph being used\n")
+            return nx.Graph()
+        
+    def create_custom_nx_graph(self, output_name:str="random_output_graph", num_nodes:int=40, random_chance_param_target:float=0.2, random_chance_param_edge:float=0.4) -> None:
+        r_graph = nx.Graph()
+
+        for i in range(num_nodes):
+            r_graph.add_node((f"node_{i}"))
+            r_graph.nodes[f"node_{i}"]["uncertainty"] = 0
+            r_graph.nodes[f"node_{i}"]["agent_presence"] = 0
+            r_graph.nodes[f"node_{i}"]["target"] = 0
+
+            random_chance_param_target=min(1,random_chance_param_target)
+            random_chance_param_target=max(0,random_chance_param_target)
+            random_chance_param_edge=max(0,random_chance_param_edge)
+            random_chance_param_edge = min(1,random_chance_param_edge)
+            if random.randint(1,100)<random_chance_param_target*100:
+                r_graph.nodes[f"node_{i}"]["target"] = 1
+        combinations_list = itertools.combinations(r_graph.nodes,2)
+        for combo in combinations_list:
+            if random.randint(1,100)<random_chance_param_edge*100:
+                r_graph.add_edge(combo[0],combo[1])
+        nx.write_graphml(r_graph,f"{output_name}.graphml")
+
+   
+
     def reset(self, options=None,seed=None):
         self.covered = set()
         self.num_moves=0
-        self.node_unc = {node:0 for node in self.graph}
         for agent in self.possible_agents:
-            self.state[agent] = random.randint(0,self.num_nodes-1)
+            self.agent_position[agent] = f"node_{agent[5:]}"
             self.rewards[agent] = 0
             self._cumulative_rewards[agent] = 0
-            self.lx = []
-            self.ly = []
-            plt.subplot(2,1,1)
-            plt.clf()
-            plt.subplot(2,1,2)
-            plt.clf()
-
             self.infos[agent] = {}
+            
         self.agents = (self.possible_agents).copy()
         self._agent_selector = agent_selector(self.agents)
         
@@ -104,72 +113,49 @@ class GraphEnv(pettingzoo.AECEnv):
 
         self.truncations = {agent:False for agent in self.agents}
         self.timestep = 0
-        return self.state, {}
+
+        return self.agent_position, {}
     @functools.lru_cache(maxsize=None)
     def action_space(self, agent):
         # We can seed the action space to make the environment deterministic.
-        return gym.spaces.Discrete(3, seed=self.np_random_seed)
+        return gym.spaces.Discrete(self.graph.number_of_nodes(), seed=self.np_random_seed)
     @functools.lru_cache(maxsize=None)
     def observation_space(self,agent) :
-        return gym.spaces.Discrete(self.num_nodes)
+        return gym.spaces.Graph(gym.spaces.Discrete(1),None)
 
     def step(self, action):
-        print(list(self.state.values()))
-        for node in self.graph:
-            #print(node)
-            if self.node_unc[node]>=self.max_uncertainty:
-                continue
-            #print(self.state)
-            elif (np.int64(node[0]) in list(state_vals:=self.state.values())):
-                if self.node_unc[node]>0:
-                    self.node_unc[node] -= list(state_vals).count(np.int64(node))
-                if self.node_unc[node]<0:
-                    self.node_unc[node] = 0
-                
+        self.agent_position[self.agent_selection] = action
+        
+        for nodes in self.graph.nodes:
+            if nodes in self.agent_position.items():
+                nodes["agent_presence"] = 1
             else:
-                self.node_unc[node] += 1
+                nodes["agent_presence"] = 0
+            nodes["uncertainty"] += nodes["target"]*nodes["agent_presence"]
+
+        self.mental_map[self.agent_selection].add_nodes_from(ego := nx.ego_graph(self.graph,self.agent_position[self.agent_selection], radius=2))
+        self.mental_map[self.agent_selection].add_edges_from(ego)
+        
+        
         if (
             self.terminations[self.agent_selection]
             or self.truncations[self.agent_selection]
         ):
-            # handles stepping an agent which is already dead
-            # accepts a None action for the one agent, and moves the agent_selection to
             # the next dead agent,  or if there are no more dead agents, to the next live agent
             self._was_dead_step(action)
             return
 
-        agent = self.agent_selection
-        # Wrap around logic (ie first-> last, last->first)
-        if(self.state[self.agent_selection]==0 and action==0):
-            self.state[self.agent_selection] = self.num_nodes-1
-        elif(self.state[self.agent_selection]==self.num_nodes-1 and action==2):
-            self.state[self.agent_selection] = 0
-        else:
-            #print("took grow")
-            self.state[self.agent_selection] += action-1
+        
 
-        #(self.covered).add(self.state[self.agent_selection])
+        #(self.covered).add(self.agent_position[self.agent_selection])
         if self._agent_selector.is_last():
             self.num_moves += 1
             
-            #print(f"num moves is {self.num_moves}")
-           # print(sum(self.node_unc.values()))
             # The truncations dictionary must be updated for all players.
             self.truncations = {
                 agent: self.num_moves >= 1000 for agent in self.agents
             }
 
-            # observe the current state
-            for i in self.agents:
-                self.observations[i] = self.state[
-                    self.agents[1 - self.agent_name_mapping[i]]]
-                
-
-            # reward giving
-        
-                #print(-sum(self.node_unc.values()))
-                self.rewards[i] = int(-sum(self.node_unc.values())/(self.num_nodes))
-                #print(self.rewards[i])
         else:
             self._clear_rewards()
         # selects the next agent.
@@ -177,30 +163,20 @@ class GraphEnv(pettingzoo.AECEnv):
         # Adds .rewards to ._cumulative_rewards
         
         self._accumulate_rewards()
-        (self.lx).append(self.num_moves)
-        (self.ly).append(self._cumulative_rewards["agent_0"])
         if self.render_mode == "human":
             self.render()
     def observe(self, agent):
     # simplest: every agent just sees the global state
-        return np.array(self.observations[agent])
+        return self.mental_map[agent]
     def render(self, total_reward=None):
         #plt.clf()
-        #print(self.state)
+        #print(self.agent_position)
         plt.subplot(2,1,1)
-        nx.draw_networkx(self.graph, with_labels=True,pos=nx.spring_layout(self.graph,seed=0),
-                node_color=
-                [(min((list(self.state.values()).count(i)*100)/self.num_agents,0.99),
-                  min(1, self.node_unc[i]/self.max_uncertainty),
-                  min(1, self.node_unc[i]/self.max_uncertainty)
-                  ) for i in self.graph.nodes()]
-                  
-                  )
+        nx.draw_networkx(self.graph)
         
         #print(self.ly)
         if self.num_moves%50==0:
             plt.subplot(2,1,2)
-            plt.plot(self.lx,self.ly)
             plt.pause(1)
         #mngr = plt.get_current_fig_manager()
         #mngr.window.wm_geometry((f"500x500+100+100"))        # TkAgg backend (most common)
@@ -214,13 +190,11 @@ class GraphEnv(pettingzoo.AECEnv):
         
         
     
-        
+
 env=GraphEnv(num_nodes = 40, num_agents=6)
+graph = env.create_custom_nx_graph(num_nodes=40)
 
-env = wrappers.OrderEnforcingWrapper(env)        
-parallel_env = aec_to_parallel(env)
-
-vec_env = ss.pettingzoo_env_to_vec_env_v1(parallel_env)
+vec_env = ss.pettingzoo_env_to_vec_env_v1(env)
 vec_env = ss.concat_vec_envs_v1(vec_env, 1, num_cpus=8, base_class="stable_baselines3")
 vec_env = VecMonitor(vec_env,filename="./log_dir")
 """model = DQN("MlpPolicy", vec_env, verbose=1)
