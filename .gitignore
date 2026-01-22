@@ -28,5 +28,6 @@ custom_environment_p.py
 *.pyc
 random_env_test.py
 ppo.py
-
 *.log
+venv
+
