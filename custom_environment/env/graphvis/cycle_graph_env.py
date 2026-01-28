@@ -5,7 +5,6 @@ import numpy as np
 import networkx as nx
 import time
 import signal
-import graphviz
 import random
 from matplotlib.animation import FuncAnimation
 import matplotlib.pyplot as plt
