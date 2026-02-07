@@ -25,7 +25,7 @@ import time
 #print(plt.get_backend())
 
 class GraphEnv(pettingzoo.ParallelEnv):
-    def __init__(self, num_nodes=10, num_agents=4, seed=1,render_mode="human", graph_selection=0):
+    def __init__(self, num_nodes=50, num_agents=4, seed=1,render_mode="human", graph_selection=0):
         self.seed=seed
     
         self.render_mode = 2
@@ -37,10 +37,13 @@ class GraphEnv(pettingzoo.ParallelEnv):
         }
         self.render_mode=render_mode
         self.np_random_seed = int(np.random.randint(1, 10 + 1))
-        self.graph:nx.Graph = self.select_graph(load_param=graph_selection,loaded_graphml_name="random_output_graph")
+        self.graph:nx.Graph = self.select_graph(load_param=0,loaded_graphml_name="./graphs/new_graph", node_amount=100)
+        print(self.graph)
+        """for i in self.graph.nodes:
+            print(self.graph.nodes[i]["uncertainty"]) """
         self.possible_agents = [f"agent_{k}" for k in range(num_agents)]
         self.total_map_observation = {agent:("") for agent in self.possible_agents}
-        self.agent_position={f"agent_{k}":0 for k in self.possible_agents}
+        self.agent_position={agent:0 for agent in self.possible_agents}
         self.agent_name_mapping = dict(
             zip(self.possible_agents, list(range(len(self.possible_agents))))
         )
@@ -60,6 +63,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
         self.current_obs = {agent:None for agent in self.possible_agents}
         self.personal_graph = {agent:None for agent in self.possible_agents}
         #self.per_agent_covered = {agent:set() for agent in self.possible_agents}
+        self.terminations = {agent:False for agent in self.agents}
 
         self.max_moves=10000
         # Linearly Decaying Parameters
@@ -69,18 +73,36 @@ class GraphEnv(pettingzoo.ParallelEnv):
         self.mental_map= {agent:nx.Graph() for agent in self.possible_agents}
         
         self.node_history = {node:[] for node in self.graph.nodes}
-        self.neighbors_iter = {node:self.graph.neighbors(node) for node in self.graph}
-        self.action_mask_to_node = {node:[0]*self.graph.number_of_nodes() for node in self.graph}
+        self.neighbors_iter = {node:list(self.graph.neighbors(node)) for node in self.graph.nodes}
+        self.action_mask_to_node = {node:[0]*(num_nodes) for node in self.graph}
+
+        """for node in self.graph.nodes:
+            print(len(list(self.graph.neighbors(n=node))))"""
+
+
         for node in self.graph.nodes:
             for index in range(self.graph.number_of_nodes()):
-                if (index in (self.neighbors_iter[node])) or (index==node[0]):
+                #print(index)
+                #print(self.neighbors_iter[node])
+                if (str(index) in (self.neighbors_iter[node])):
+
                     self.action_mask_to_node[node][index] = 1
-                    
-    def select_graph(self, load_param:int, loaded_graphml_name:str, output_name:str="default_name"):
+        print(self.action_mask_to_node)       
+    def select_graph(self, load_param:int, loaded_graphml_name:str, output_name:str="default_name",node_amount:int = 100):
+        """
+        Docstring for select_graph
+        
+        :param load_param: 1 for loading a graph from a graphml file, 0 for using the create custom nx graph method
+        :type load_param: int
+        :param loaded_graphml_name: Name of the desired loaded graphml file, eg "example" <-> example.graphml
+        :type loaded_graphml_name: str
+        :param output_name: The output name of the created graph if load_param is 0
+        :type output_name: str
+        """
         if load_param==1:
             return nx.read_graphml(f"{loaded_graphml_name}.graphml")
         elif load_param == 0 :
-            self.create_custom_nx_graph(output_name=f"{output_name}")
+            self.create_custom_nx_graph(output_name=f"{output_name}",num_nodes=100)
             
             return nx.read_graphml(f"./graphs/{output_name}.graphml")
         else:
@@ -88,9 +110,8 @@ class GraphEnv(pettingzoo.ParallelEnv):
             return nx.Graph()
     def spatial_encoding(self) :
         pass
-    def create_custom_nx_graph(self, output_name:str="random_output_graph", num_nodes:int=40, random_chance_param_target:int=20, random_chance_param_edge:float=40) -> None:
+    def create_custom_nx_graph(self, output_name:str="random_output_graph", num_nodes:int=50, random_chance_param_target:int=20, random_chance_param_edge:int=20) -> None:
         r_graph = nx.Graph()
-
         for i in range(num_nodes):
             r_graph.add_node(i)
           
@@ -98,21 +119,17 @@ class GraphEnv(pettingzoo.ParallelEnv):
             r_graph.nodes[i]["agent_presence"] = 0
             r_graph.nodes[i]["target"] = 0
 
-            random_chance_param_target=min(1,random_chance_param_target)
-            random_chance_param_target=max(0,random_chance_param_target)
-            random_chance_param_edge=max(0,random_chance_param_edge)
-            random_chance_param_edge = min(1,random_chance_param_edge)
             if random.randint(1,100)<random_chance_param_target:
                 r_graph.nodes[i]["target"] = 1
         combinations_list = itertools.combinations(r_graph.nodes,2)
         for combo in combinations_list:
-            if random.randint(1,100)<random_chance_param_edge*100:
+            if random.randint(1,100)<random_chance_param_edge:
                 r_graph.add_edge(combo[0],combo[1])
         nx.write_graphml(r_graph,f"./graphs/{output_name}.graphml")
   
     def reset(self):
+        self.graph:nx.Graph = self.select_graph(load_param=0,loaded_graphml_name="abc123",output_name="forty_percent_edge_20_50_node")
         self.node_history = {node:[] for node in self.graph.nodes}
-        self.mental_map_history = {agent:[] for agent in self.possible_agents}
         self.mental_map= {agent:nx.Graph() for agent in self.possible_agents}
         self.num_moves=0
         for agent in self.possible_agents:
@@ -130,18 +147,19 @@ class GraphEnv(pettingzoo.ParallelEnv):
         self.truncations = {agent:False for agent in self.agents}
         self.timestep = 0
         # Resetting the graph to have no uncertainty values and accurate edge connections if necessary
-        print(self.graph)
         deg = self.graph.degree
         degree_list = [
         ]   
         print(type(deg))
         for item in deg:
             degree_list.append(item)
+        print(self.graph.nodes)
         for node in range(len(self.graph.nodes)):
             # Resetting uncertainty
-            self.graph.nodes[f"node_{node}"]["uncertainty"] = 0
+            self.graph.nodes[node]["uncertainty"] = 0
             #Resetting number of connections
-            self.graph.nodes[f"node_{node}"]["connections"] = degree_list[node]
+            self.graph.nodes[node]["connections"] = degree_list[node]
+        self.agent_position={agent:0 for agent in self.possible_agents}
 
         return self.agent_position, {}
     @functools.lru_cache(maxsize=None)
@@ -159,25 +177,30 @@ class GraphEnv(pettingzoo.ParallelEnv):
     }
 
     def step(self, action:dict):
+        # Reset rewards, observations, infos
         rewards, obs, infos = {},{},{}
+        # Loop through
         for agent in self.agents:
-            self.agent_position[agent] = action[agent] 
+            self.agent_position[agent] = action[agent].item()
 
             for node_idx in range(len(self.graph.nodes)):
                 if node_idx in (self.agent_position.values()):
-                    self.graph.nodes[f"node_{node_idx}"]["agent_presence"] = 1
+                    self.graph.nodes[str(node_idx)]["agent_presence"] = 1
                 else:
-                    self.graph.nodes[f"node_{node_idx}"]["agent_presence"] = -1
+                    self.graph.nodes[str(node_idx)]["agent_presence"] = -1
                 # 
                # self.node_history[agent].append(nodes)
-                self.graph.nodes[f"node_{node_idx}"]["uncertainty"] = self.graph.nodes[f"node_{node_idx}"]["agent_presence"]*self.graph.nodes[f"node_{node_idx}"]["target"]
+                self.graph.nodes[str(node_idx)]["uncertainty"] = self.graph.nodes[str(node_idx)]["agent_presence"]*self.graph.nodes[str(node_idx)]["target"]
 
-            self.mental_map[agent].add_nodes_from(ego := nx.ego_graph(self.graph,f"node_{self.agent_position[agent]}", radius=2), data=True)
+            self.mental_map[agent].add_nodes_from(ego := nx.ego_graph(self.graph,str(self.agent_position[agent]), radius=2), data=True)
+            print("added nodes")
             self.mental_map[agent].add_edges_from(ego.edges(),data=True)
-            self.mental_map_history[agent].append((from_networkx(self.mental_map[agent])))
+            
             uncertainty_sum = 0
+            
             for node_index in range(len(self.graph.nodes)):
-                uncertainty_sum += self.graph.nodes[f"node_{node_index}"]["uncertainty"]
+                uncertainty_sum += self.graph.nodes[str(node_index)]["uncertainty"]
+            
             rewards[agent] = self.d0*(1-(self.num_moves/self.max_moves))*self.graph.number_of_nodes()-uncertainty_sum
         
         self.truncations = {
@@ -188,7 +211,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
         if self.render_mode == "human":
             self.render()
         
-        obs = {agent:{"observation":self.mental_map[agent],"action_mask":self.action_mask_to_node[f"node_{self.agent_position[agent]}"]} for agent in self.agents}
+        obs = {agent:{"observation":self.mental_map[agent],"action_mask":self.action_mask_to_node[str(self.agent_position[agent])]} for agent in self.agents}
         return obs, rewards, self.terminations, self.truncations, infos
     def observe(self, agent):
         # Every agent sees its mental map

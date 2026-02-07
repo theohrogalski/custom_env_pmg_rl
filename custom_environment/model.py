@@ -21,27 +21,33 @@ class observation_processing_network(torch.nn.Module):
                                          torch.nn.ReLU(),
                                          torch.nn.Linear(16,32),
                                          torch.nn.ReLU(),
-                                         torch.nn.Linear(in_features=16,out_features=40)
+                                         torch.nn.Linear(in_features=16,out_features=number_of_nodes)
                                          )
-
-
+        
         self.graph_attention = GAT(in_channels=-1,num_layers=10,hidden_channels=3)
 
-        self.mlp_aggr = MLPAggregation(in_channels=3, out_channels=1,max_num_elements=3,num_layers=3, hidden_channels=5, mlp = custom_mlp)
-
+        self.actor = MLPAggregation(in_channels=3, out_channels=1,max_num_elements=3,num_layers=3, hidden_channels=5, mlp = custom_mlp)
+        self.critic = torch.nn.Linear(in_features=1,out_features=1)
         self.softmax = torch.nn.Softmax()
         
         self.history=[]
     
     def forward(self, mental_map:nx.Graph, mask:list):
+        print(mental_map)
         if mental_map:
             mental_map = from_networkx(mental_map, group_node_attrs=["uncertainty","agent_presence","target"])
         else:
-            mental_map = from_networkx(nx.cycle_graph(n=1))
-        print(mental_map)
-        mental_map.x = mental_map.x.to(torch.float32)
+            mental_map = (nx.cycle_graph(n=50))
+            #print(mental_map)
+            for node in mental_map.nodes():
+                mental_map.nodes[node]["uncertainty"] = 0
+                mental_map.nodes[node]["agent_presence"] = 0
+                mental_map.nodes[node]["target"] = 0
+            mental_map=from_networkx(mental_map, group_node_attrs=["uncertainty","agent_presence","target"])
+        #print(mental_map)
+        #print(mental_map.x)
+        mental_map.x = mental_map.x.to(dtype=torch.float32)
         mental_map.edge_index = add_self_loops(mental_map.edge_index)
-        print(f"edge index is {mental_map.edge_index}")
 
         gat_x = self.graph_attention(mental_map.x,mental_map.edge_index[0])
         
@@ -50,30 +56,30 @@ class observation_processing_network(torch.nn.Module):
         history = torch.concatenate(self.history)
 
         
-        #print(f"gat x 0 is  {gat_x}")
-        mha_to_mlp_aggr_format = []
         results, _ = self.multihead(gat_x, history, history)
-        print((results).shape)
+        #print((results).shape)
         index=[]
         for i in range(self.number_of_nodes):
             index.append(i)
         index = torch.tensor(index,dtype=torch.int32)    
-        results = self.mlp_aggr(x=results, index=index)
-
-        new_results = [   ] 
+        results = self.actor(x=results, index=index)
+        print(results)
+        print(type(results))
+        print(mask)
         
-        for index, logit in enumerate(list(results)):
-            if mask[index]==1:
-                new_results.append(logit[0])
-            else:
-                new_results.append(torch.tensor([0]))
-        print(f"logits are {new_results}")
-        print(f"new results are {new_results}")
-        print()
-        return new_results
+        new_results = results[:,0] * torch.tensor(mask)       
+        #print(f"new results are {new_results}")
+        #print()
+        value = self.critic(results)
+        print(type(new_results))
+        print(new_results)
+        print(new_results.sum())
+        value = value.mean()
+        print(value)
+        return new_results, value
         
 
-# Test
+#       Test
 
 if __name__ == "__main__":
     print("starting process")
