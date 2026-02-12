@@ -23,7 +23,7 @@ class observation_processing_network(torch.nn.Module):
                                          torch.nn.ReLU(),
                                          torch.nn.Linear(in_features=16,out_features=number_of_nodes)
                                          )
-        
+        self.transform = torch.nn.Transformer()
         self.graph_attention = GAT(in_channels=-1,num_layers=10,hidden_channels=3)
 
         self.actor = MLPAggregation(in_channels=3, out_channels=1,max_num_elements=3,num_layers=3, hidden_channels=5, mlp = custom_mlp)
@@ -33,8 +33,11 @@ class observation_processing_network(torch.nn.Module):
         self.history=[]
     
     def forward(self, mental_map:nx.Graph, mask:list):
-        print(mental_map)
+        #print(mental_map)
         if mental_map:
+            """for _,data in mental_map.nodes(data=True):
+                print(data)"""
+
             mental_map = from_networkx(mental_map, group_node_attrs=["uncertainty","agent_presence","target"])
         else:
             mental_map = (nx.cycle_graph(n=50))
@@ -49,33 +52,41 @@ class observation_processing_network(torch.nn.Module):
         mental_map.x = mental_map.x.to(dtype=torch.float32)
         mental_map.edge_index = add_self_loops(mental_map.edge_index)
 
-        gat_x = self.graph_attention(mental_map.x,mental_map.edge_index[0])
+        gat_x = self.graph_attention(mental_map.x, mental_map.edge_index[0])
         
-        self.history.append(gat_x)
+        # 1. Store only the DETACHED version in history to break the graph link
+        self.history.append(gat_x.detach()) 
         
-        history = torch.concatenate(self.history)
+        # 2. Keep the history list from growing forever (optional but recommended)
+        if len(self.history) > 10: 
+            self.history.pop(0)
 
-        
-        results, _ = self.multihead(gat_x, history, history)
+        # 3. Concatenate the detached history with the CURRENT active gat_x
+        # Use gat_x for the current step and the history for context
+        current_history = torch.concatenate(self.history[:-1] + [gat_x])
+
+        # 4. Use current_history in your attention layer
+        results, _ = self.multihead(gat_x, current_history, current_history)
         #print((results).shape)
         index=[]
         for i in range(self.number_of_nodes):
             index.append(i)
-        index = torch.tensor(index,dtype=torch.int32)    
+        index = torch.tensor(index,dtype=torch.int32) 
+        #print(results)   
         results = self.actor(x=results, index=index)
-        print(results)
-        print(type(results))
-        print(mask)
+        #print(results)
+        #print(type(results))
+        #print(mask)
         
         new_results = results[:,0] * torch.tensor(mask)       
         #print(f"new results are {new_results}")
         #print()
         value = self.critic(results)
-        print(type(new_results))
+        """print(type(new_results))
         print(new_results)
-        print(new_results.sum())
+        print(new_results.sum())"""
         value = value.mean()
-        print(value)
+        #print(value)
         return new_results, value
         
 
