@@ -1,13 +1,19 @@
 import torch
 from torch_geometric.nn.models import GAT
 from torch_geometric.nn.conv import GATConv
-from torch_geometric.utils import from_networkx
+from torch_geometric.utils import from_networkx,from_nested_tensor
+from torch_geometric.transforms.add_positional_encoding import AddLaplacianEigenvectorPE
 import networkx as nx
+from torch_geometric import data
+from torch.nn import TransformerEncoder
 from torch.nn import MultiheadAttention
 from torch_geometric.data import Data
 from torch.nn import ReLU
 from torch_geometric.nn.aggr import MLPAggregation
 from torch_geometric.utils import add_self_loops
+import gpytorch as gpto
+from torch_geometric.nn import TransformerConv
+
 class observation_processing_network(torch.nn.Module):
     def __init__(self,number_of_nodes) :
         if torch.cuda.is_available():
@@ -15,6 +21,7 @@ class observation_processing_network(torch.nn.Module):
         else:
             self.device = "cpu"
         super().__init__()
+        
         self.multihead = MultiheadAttention(embed_dim=3, num_heads=3)
         self.number_of_nodes=number_of_nodes
         custom_mlp = torch.nn.Sequential(torch.nn.Linear(3*number_of_nodes,out_features=16),
@@ -23,58 +30,58 @@ class observation_processing_network(torch.nn.Module):
                                          torch.nn.ReLU(),
                                          torch.nn.Linear(in_features=16,out_features=number_of_nodes)
                                          )
-        self.transform = torch.nn.Transformer()
-        self.graph_attention = GAT(in_channels=-1,num_layers=10,hidden_channels=3)
-
+        self.transform_two = TransformerConv(3,3,1)
+        self.graph_attention = GAT(in_channels=3,num_layers=10,hidden_channels=3)
         self.actor = MLPAggregation(in_channels=3, out_channels=1,max_num_elements=3,num_layers=3, hidden_channels=5, mlp = custom_mlp)
         self.critic = torch.nn.Linear(in_features=1,out_features=1)
         self.softmax = torch.nn.Softmax()
-        
+        self.gp_dict = {}
         self.history=[]
-    
+        self.add_laplacian = AddLaplacianEigenvectorPE(49)
     def forward(self, mental_map:nx.Graph, mask:list):
+        
         #print(mental_map)
-        if mental_map:
-            """for _,data in mental_map.nodes(data=True):
-                print(data)"""
-
-            mental_map = from_networkx(mental_map, group_node_attrs=["uncertainty","agent_presence","target"])
-        else:
-            mental_map = (nx.cycle_graph(n=50))
-            #print(mental_map)
-            for node in mental_map.nodes():
-                mental_map.nodes[node]["uncertainty"] = 0
-                mental_map.nodes[node]["agent_presence"] = 0
-                mental_map.nodes[node]["target"] = 0
-            mental_map=from_networkx(mental_map, group_node_attrs=["uncertainty","agent_presence","target"])
-        #print(mental_map)
-        #print(mental_map.x)
+        mental_map = from_networkx(mental_map, group_node_attrs=["uncertainty","agent_presence","target"])
+        
         mental_map.x = mental_map.x.to(dtype=torch.float32)
         mental_map.edge_index = add_self_loops(mental_map.edge_index)
-
+        print(mental_map.edge_index)
+        #print(type(mental_map))
         gat_x = self.graph_attention(mental_map.x, mental_map.edge_index[0])
         
-        # 1. Store only the DETACHED version in history to break the graph link
         self.history.append(gat_x.detach()) 
         
-        # 2. Keep the history list from growing forever (optional but recommended)
-        if len(self.history) > 10: 
-            self.history.pop(0)
-
-        # 3. Concatenate the detached history with the CURRENT active gat_x
-        # Use gat_x for the current step and the history for context
+        #print(f"gat x is {gat_x}")
+        
+        #print(self.history)
+        
         current_history = torch.concatenate(self.history[:-1] + [gat_x])
-
-        # 4. Use current_history in your attention layer
+        #print(f"type at 1 is {type(gat_x)}")
+        
         results, _ = self.multihead(gat_x, current_history, current_history)
+        mental_map.x = results
+        #print(f"type at 2 is {type(results)}")
+        #print(type(results))
+        mental_map.edge_index=mental_map.edge_index[0]
+        print(mental_map.edge_index)
+        #print((mental_map).edge_index)
+        #print(mental_map.num_nodes)
+        #print(mental_map.x)
+        print(mental_map)
+        mental_map = self.add_laplacian(mental_map)
+
+        print(mental_map)
+        mental_map = self.transform_two(mental_map)
         #print((results).shape)
         index=[]
         for i in range(self.number_of_nodes):
             index.append(i)
-        index = torch.tensor(index,dtype=torch.int32) 
+        index = torch.tensor(index,dtype=torch.int64) 
         #print(results)   
-        results = self.actor(x=results, index=index)
+        results = self.actor(x=mental_map.x, index=index)
         #print(results)
+        print(type(results))
+
         #print(type(results))
         #print(mask)
         

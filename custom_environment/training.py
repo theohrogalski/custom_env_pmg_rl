@@ -1,8 +1,10 @@
 from custom_graph_env import GraphEnv
 import torch
+import os
 from torch.distributions import Categorical
 from model import observation_processing_network
 import logging
+from gymnasium.wrappers import RecordEpisodeStatistics
 logger = logging.Logger(f"Logger.log")
 handler = logging.Handler(level=0)
 attach = logger.addHandler(handler)
@@ -29,7 +31,6 @@ env = GraphEnv(num_nodes=num_nodes)
 #print(f" here3 {env.graph.nodes()}")
 #print(env.agent_position)
 
-observation_processing_network(env.graph.number_of_nodes())
 obs_nets:dict = {agent:observation_processing_network(env.graph.number_of_nodes()) for agent in env.possible_agents}
 optimizers = {agent:torch.optim.Adam(obs_nets[agent].parameters()) for agent in env.agents}
 gamma = 0.99
@@ -54,3 +55,4 @@ while env.agents :
     obs, rewards, terminations, truncations, infos = env.step(actions)
     logging.info(str(rewards[agent]) for agent in agent)
     #print("one step")
+    

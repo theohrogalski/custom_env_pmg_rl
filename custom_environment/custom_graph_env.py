@@ -4,6 +4,8 @@ from gymnasium import spaces
 import numpy as np
 import networkx as nx
 import random
+import os
+import wandb
 from torch_geometric.utils import from_networkx
 from matplotlib.animation import FuncAnimation
 import matplotlib.pyplot as plt
@@ -46,7 +48,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
         # 2. Define your type conversion (e.g., str -> int)
         # We create a mapping: {old_id: new_id}
         mapping = {node: int(node) for node in self.graph.nodes()}
-
+        
         # 3. Modify the graph in-place
         # copy=False ensures the original G is modified
         nx.relabel_nodes(self.graph, mapping, copy=False)
@@ -64,6 +66,9 @@ class GraphEnv(pettingzoo.ParallelEnv):
         self.agents = self.possible_agents
         self._cumulative_rewards = {agent:0 for agent in self.agents}
         self.num_moves = 0
+        self.obs_dict = {node:torch.Tensor() for node in range(self.num_nodes)}
+
+        self.model_path = "./saved_models"
         self.max_uncertainty:int = 100
         self.mmap = {agent:nx.Graph() for agent in self.possible_agents}
         self.mistakes = {agent:0 for agent in self.possible_agents}
@@ -129,8 +134,12 @@ class GraphEnv(pettingzoo.ParallelEnv):
         else:
             #print("empty graph being used\n")
             return nx.Graph()
-    def spatial_encoding(self) :
-        pass
+    def len_path_in_mm(self,agent)->list:
+        shortest_path_list=[]
+        for node in self.mental_map[agent].nodes():
+            if self.graph.nodes[node]["agent_presence"]==1:
+                shortest_path_list.append(nx.shortest_path_length(self.graph,self.agent_position[agent],node))
+        return(shortest_path_list)
     def create_custom_nx_graph(self, output_name:str="random_output_graph", random_chance_param_target:int=20, random_chance_param_edge:int=20) -> None:
         r_graph = nx.Graph()
         for i in range(self.num_nodes):
@@ -139,7 +148,8 @@ class GraphEnv(pettingzoo.ParallelEnv):
             r_graph.nodes[i]["uncertainty"] = 0
             r_graph.nodes[i]["agent_presence"] = 0
             r_graph.nodes[i]["target"] = 0
-
+            r_graph.nodes[i]["coordinates"] = (randint(0,self.num_nodes*3),randint(0,self.num_nodes*3))
+            
             if random.randint(1,100)<random_chance_param_target:
                 r_graph.nodes[i]["target"] = 1
         combinations_list = itertools.combinations(r_graph.nodes,2)
@@ -150,6 +160,8 @@ class GraphEnv(pettingzoo.ParallelEnv):
         #print("got here")
   
     def reset(self):
+        self.obs_dict = {node:torch.Tensor() for node in range(self.num_nodes)}
+
         #print("running reset")
         self.graph:nx.Graph = self.select_graph(load_param=1,output_name=f"graph_{self.random_num}",loaded_graphml_name="./graphs/graph_8114")
         placeholder_graph = nx.Graph()
@@ -234,6 +246,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
                 if self.graph.nodes[node_idx]["target"]==1 and self.graph.nodes[(node_idx)]["agent_presence"] == 1 and self.graph.nodes[(node_idx)]["uncertainty"]>0:
 
                     self.graph.nodes[(node_idx)]["uncertainty"]-=1
+                    #print("minused uncertainty")
                 elif self.graph.nodes[(node_idx)]["uncertainty"]<self.max_uncertainty and self.graph.nodes[node_idx]["target"]==1:
                     self.graph.nodes[(node_idx)]["uncertainty"]+=1
                     
@@ -247,7 +260,8 @@ class GraphEnv(pettingzoo.ParallelEnv):
             #print(list(self.mental_map[agent].nodes()))
             #print("added nodes")
             self.mental_map[agent].add_edges_from(ego.edges(data=True))
-
+            for node in self.mental_map[agent].nodes():
+                self.obs_dict[node] = torch.cat( self.obs_dict[node], torch.Tensor(int(self.graph.nodes[node]["uncertainty"])) )
             #print(self.mental_map[agent].number_of_nodes())
 
             uncertainty_sum=0
@@ -265,6 +279,8 @@ class GraphEnv(pettingzoo.ParallelEnv):
             self.render()
         
         obs = {agent:{"observation":self.mental_map[agent],"action_mask":self.action_mask_to_node[(self.agent_position[agent])]} for agent in self.agents}
+
+
         return obs, rewards, self.terminations, self.truncations, infos
     def observe(self, agent):
         # Every agent sees its mental map
