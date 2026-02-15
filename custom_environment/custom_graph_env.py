@@ -97,7 +97,19 @@ class GraphEnv(pettingzoo.ParallelEnv):
         self.mental_map= {agent:starting_graph.copy() for agent in self.possible_agents}
         #print(self.mental_map["agent_0"])
       #  #print(f"start nodes is {starting_graph.number_of_nodes()}")
-        
+        for agent in self.possible_agents:   
+            ego = nx.ego_graph(self.graph, int(self.agent_position[agent]), radius=2)
+
+            #print(f"before {self.mental_map[agent].number_of_nodes()}")
+            
+            self.mental_map[agent].add_nodes_from(ego.nodes(data=True))
+            #print(list(ego.nodes()))
+            #print(list(self.mental_map[agent].nodes()))
+            #print("added nodes")
+            self.mental_map[agent].add_edges_from(ego.edges(data=True))
+        self.episode_num=0
+        self.reward_graph={agent:[] for agent in self.possible_agents}
+        self.total_uncertainty_graph=[]
         self.node_history = {node:[] for node in self.graph.nodes}
         self.neighbors_iter = {node:list(self.graph.neighbors(node))for node in self.graph.nodes}
         self.action_mask_to_node = {node:[0]*(num_nodes) for node in self.graph}
@@ -160,11 +172,16 @@ class GraphEnv(pettingzoo.ParallelEnv):
         #print("got here")
   
     def reset(self):
+        
+        plt.plot(self.total_uncertainty_graph)
+        plt.title(f"Uncertainty_Graph_{self.episode_num}")
+        plt.savefig("uncertainty_graph.png")
+        self.episode_num +=1
+        
         self.obs_dict = {node:torch.Tensor() for node in range(self.num_nodes)}
 
         #print("running reset")
         self.graph:nx.Graph = self.select_graph(load_param=1,output_name=f"graph_{self.random_num}",loaded_graphml_name="./graphs/graph_8114")
-        placeholder_graph = nx.Graph()
             
         assert(type(self.graph.nodes()[0])==int)
         self.node_history = {node:[] for node in self.graph.nodes}
@@ -177,14 +194,25 @@ class GraphEnv(pettingzoo.ParallelEnv):
             starting_graph.nodes[node]["target"]=0
         #print(f"nodes from reset is {starting_graph.number_of_nodes()}")
         assert(starting_graph.number_of_nodes()==self.num_nodes)
-        self.mental_map= {agent:starting_graph.copy() for agent in self.possible_agents}
         self.num_moves=0
         for agent in self.possible_agents:
             self.agent_position[agent] =  int(agent[6:])
             self.rewards[agent] = 0
             self._cumulative_rewards[agent] = 0
             self.infos[agent] = {}
+        self.mental_map= {agent:starting_graph.copy() for agent in self.possible_agents}
+        for agent in self.possible_agents:   
+            ego = nx.ego_graph(self.graph, int(self.agent_position[agent]), radius=2)
+
+            #print(f"before {self.mental_map[agent].number_of_nodes()}")
             
+            self.mental_map[agent].add_nodes_from(ego.nodes(data=True))
+            #print(list(ego.nodes()))
+            #print(list(self.mental_map[agent].nodes()))
+            #print("added nodes")
+            self.mental_map[agent].add_edges_from(ego.edges(data=True))
+
+        self.reward_graph={agent:[] for agent in self.possible_agents}
         self.agents = (self.possible_agents).copy()
         self._agent_selector = agent_selector(self.agents)
         
@@ -206,7 +234,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
             #Resetting number of connections
             self.graph.nodes[node]["connections"] = degree_list[node]
         self.agent_position={agent:0 for agent in self.possible_agents}
-
+        self.total_uncertainty.append()
         return self.agent_position, {}
     @functools.lru_cache(maxsize=None)
     def action_space(self, agent):
@@ -261,15 +289,16 @@ class GraphEnv(pettingzoo.ParallelEnv):
             #print("added nodes")
             self.mental_map[agent].add_edges_from(ego.edges(data=True))
             for node in self.mental_map[agent].nodes():
-                self.obs_dict[node] = torch.cat( self.obs_dict[node], torch.Tensor(int(self.graph.nodes[node]["uncertainty"])) )
+                self.obs_dict[node] = torch.cat( (self.obs_dict[node], torch.Tensor(int(self.graph.nodes[node]["uncertainty"])) ))
             #print(self.mental_map[agent].number_of_nodes())
 
             uncertainty_sum=0
             for node_index in range(len(self.graph.nodes)):
                 uncertainty_sum += self.graph.nodes[(node_index)]["uncertainty"]
                 self.graph.nodes[(node_index)]
-            rewards[agent] = self.d0*(1-(self.num_moves/self.max_moves))*self.graph.number_of_nodes()-uncertainty_sum*100
-        
+            self.total_uncertainty_graph.append(uncertainty_sum)
+            rewards[agent] = self.d0*(1-(self.num_moves/self.max_moves))*self.graph.number_of_nodes()-uncertainty_sum
+            print(rewards[agent])
         self.truncations = {
             agent: self.num_moves >= self.max_moves for agent in self.agents
             }
@@ -289,7 +318,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
         #plt.clf()
         ##print(self.agent_position)
         plt.subplot(2,1,1)
-        nx.draw_networkx(self.graph)
+        #nx.draw_networkx(self.graph)
         
         ##print(self.ly)
         if self.num_moves%50==0:

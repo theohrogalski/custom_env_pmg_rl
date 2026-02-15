@@ -37,22 +37,82 @@ gamma = 0.99
 
 critic_loss_dict:dict = {}
 #print("starting")
-while env.agents :
-    actions,rewards = {},{agent:0 for agent in env.agents}
-    for agent in env.agents:
-        ##print(env.mental_map[agent])
-        #print(f"mental map during trianing is {env.mental_map[agent].number_of_nodes()}")
-        assert(env.mental_map[agent].number_of_nodes()==num_nodes)
-        action_logits,value = (obs_nets[agent](mental_map = env.mental_map[agent], mask = env.action_mask_to_node[int((env.agent_position[agent]))]))
-        actions[agent] = Categorical(logits=action_logits).sample()
-        log_probs = (action_logits)
-        optimizers[agent].zero_grad()
+import logging
 
-        loss = compute_loss(rewards[agent],action_logits,value)
+# Hyperparameters
+GAMMA = 0.99
+critic_loss_dict = {}
+
+# Main Episode Loop
+while env.agents:
+    
+    # --- PHASE 1: COLLECT ACTIONS ---
+    actions = {}
+    step_data = {} # To store tensors needed for backprop later
+    
+    # Iterate over current active agents to decide actions
+    for agent in env.agents:
+        mental_map = env.mental_map[agent]
+        mask = env.action_mask_to_node[int(env.agent_position[agent])]
+
+        # Forward pass
+        # obs_nets is a dict of ActorCritic models
+        action_logits, value = obs_nets[agent](mental_map=mental_map, mask=mask)
+        
+        # Sample action
+        dist = Categorical(logits=action_logits)
+        action = dist.sample()
+        
+        actions[agent] = action
+        
+        # Store data for learning phase (Log Prob and Value)
+        step_data[agent] = {
+            "log_prob": dist.log_prob(action),
+            "value": value
+        }
+
+    # --- PHASE 2: STEP ENVIRONMENT ---
+    # We step ONCE with all actions
+    # Note: PettingZoo returns dicts keyed by agent
+    obs, rewards, terminations, truncations, infos = env.step(actions)
+
+    # --- PHASE 3: COMPUTE LOSS & BACKPROP ---
+    # We iterate over the agents that acted in this step
+    for agent, data in step_data.items():
+        
+        # Get the reward returned by env.step
+        reward = rewards.get(agent, 0)
+        
+        # Determine if agent is done
+        done = terminations.get(agent, False) or truncations.get(agent, False)
+
+        # Get Next Value (Bootstrap)
+        # We need the value of the NEW state (obs) to calculate the TD target
+        # If the agent is dead (done), next value is 0.
+        if done:
+            next_value = 0
+        else:
+            # We must run the model again on the new observation (no grad needed)
+            with torch.no_grad():
+                next_mental_map = env.mental_map[agent] # Ensure this is updated by env.step
+                next_mask = env.action_mask_to_node[int(env.agent_position[agent])]
+                _, next_value = obs_nets[agent](mental_map=next_mental_map, mask=next_mask)
+                next_value = next_value.item() # get scalar
+
+        # Retrieve stored variables from Phase 1
+        log_prob = data["log_prob"]
+        value = data["value"]
+
+        # Calculate Loss
+        loss = compute_loss(log_prob, value, reward, next_value, done, GAMMA)
+
+        # Optimization Step
         optimizers[agent].zero_grad()
         loss.backward()
         optimizers[agent].step()
-    obs, rewards, terminations, truncations, infos = env.step(actions)
-    logging.info(str(rewards[agent]) for agent in agent)
-    #print("one step")
-    
+        
+        # Logging
+        critic_loss_dict[agent] = loss.item()
+
+    # Logging
+    logging.info(f"Rewards: {list(rewards.values())}")

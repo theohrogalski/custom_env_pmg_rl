@@ -40,67 +40,70 @@ class observation_processing_network(torch.nn.Module):
         self.add_laplacian = AddLaplacianEigenvectorPE(49)
     def forward(self, mental_map:nx.Graph, mask:list):
         
-        #print(mental_map)
+        ##print(mental_map)
         mental_map = from_networkx(mental_map, group_node_attrs=["uncertainty","agent_presence","target"])
         
         mental_map.x = mental_map.x.to(dtype=torch.float32)
         mental_map.edge_index = add_self_loops(mental_map.edge_index)
-        print(mental_map.edge_index)
-        #print(type(mental_map))
+        #print(mental_map.edge_index)
+        ##print(type(mental_map))
         gat_x = self.graph_attention(mental_map.x, mental_map.edge_index[0])
         
         self.history.append(gat_x.detach()) 
         
-        #print(f"gat x is {gat_x}")
+        ##print(f"gat x is {gat_x}")
         
-        #print(self.history)
+        ##print(self.history)
         
         current_history = torch.concatenate(self.history[:-1] + [gat_x])
-        #print(f"type at 1 is {type(gat_x)}")
+        ##print(f"type at 1 is {type(gat_x)}")
         
         results, _ = self.multihead(gat_x, current_history, current_history)
         mental_map.x = results
-        #print(f"type at 2 is {type(results)}")
-        #print(type(results))
+        ##print(f"type at 2 is {type(results)}")
+        ##print(type(results))
         mental_map.edge_index=mental_map.edge_index[0]
-        print(mental_map.edge_index)
-        #print((mental_map).edge_index)
-        #print(mental_map.num_nodes)
-        #print(mental_map.x)
-        print(mental_map)
+        #print(mental_map.edge_index)
+        ##print((mental_map).edge_index)
+        ##print(mental_map.num_nodes)
+        ##print(mental_map.x)
+        ##print(mental_map)
         mental_map = self.add_laplacian(mental_map)
 
-        print(mental_map)
-        mental_map = self.transform_two(mental_map)
-        #print((results).shape)
+        #print(mental_map.edge_index)
+
+        results = self.transform_two(mental_map.x, mental_map.edge_index)
+        #print(results)
+        ##print((results).shape)
         index=[]
         for i in range(self.number_of_nodes):
             index.append(i)
         index = torch.tensor(index,dtype=torch.int64) 
-        #print(results)   
+        ##print(results)   
+        mental_map.x
         results = self.actor(x=mental_map.x, index=index)
-        #print(results)
-        print(type(results))
-
+        ##print(results)
         #print(type(results))
-        #print(mask)
+
+        ##print(type(results))
+        ##print(mask)
         
         new_results = results[:,0] * torch.tensor(mask)       
-        #print(f"new results are {new_results}")
-        #print()
+        ##print(f"new results are {new_results}")
+        ##print()
         value = self.critic(results)
-        """print(type(new_results))
-        print(new_results)
-        print(new_results.sum())"""
+        """#print(type(new_results))
+        #print(new_results)
+        #print(new_results.sum())"""
         value = value.mean()
-        #print(value)
+        ##print(value)
         return new_results, value
         
 
 #       Test
 
 if __name__ == "__main__":
-    print("starting process")
+    #print("starting process")
     model = observation_processing_network(40)
     graph = nx.read_graphml("./graphs/int_name_graph.graphml")
     model.forward(graph,[0,1,1,1,1,1,1,1,1,1,1,1,0,1,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1])
