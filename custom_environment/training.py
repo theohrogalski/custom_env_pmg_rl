@@ -1,35 +1,51 @@
 from custom_graph_env import GraphEnv
 import torch
 import os
+from torch.nn.modules.container import ParameterList
 from torch.distributions import Categorical
 from model import observation_processing_network
 import logging
+from torch.nn.functional import mse_loss
 from gymnasium.wrappers import RecordEpisodeStatistics
-logger = logging.Logger(f"Logger.log")
-handler = logging.Handler(level=0)
-attach = logger.addHandler(handler)
+logger = logging.getLogger("logger_train")
+logging.basicConfig(filename='logger_train.log', level=logging.INFO)
+print("logger created")
+logger.info("------ Logger Started ------")
+def calculate_unc_est_loss(predicted_value, actual_value):
+    return (predicted_value-actual_value)^2
 
-def compute_loss(reward, log_probs, value, gamma=0.99):
-    # 1. Calculate discounted returns (backwards)
-    returns = []
-    R = 0
-    R = reward + gamma * R
-    returns.insert(0, R)
+cur_length_list = []
+
+def compute_ac_loss(log_prob, value, reward, next_value, done, gamma=0.99):
+    # 1. Calculate Target (TD Target)
+    # If done, next value is 0
+    mask = 1 - int(done)
+    target = reward + (gamma * next_value * mask)
     
-    returns = torch.tensor(returns)
-
-    # 2. Calculate Advantage (Actual Return - Predicted Value)
-    advantage = returns - value.item()
-
-    # 3. Final Losses
-    actor_loss = -(log_probs * advantage).mean()
-    critic_loss = torch.nn.functional.mse_loss(value, returns)
-
-    return actor_loss + critic_loss
+    # 2. Calculate Advantage (Target - Baseline)
+    # Detach target because we don't want to backprop through the target for the critic
+    advantage = target - value
+    
+    # 3. Actor Loss: -log_prob * advantage
+    actor_loss = -log_prob * advantage
+    
+    # 4. Critic Loss: MSE(value, target)
+    # Use SmoothL1 or MSE
+    critic_loss = mse_loss(torch.Tensor([value]), torch.Tensor([target]))
+    
+    # 5. Total Loss
+    total_loss = actor_loss + (0.5 * critic_loss)
+    
+    return total_loss
 num_nodes=50
 env = GraphEnv(num_nodes=num_nodes)
 #print(f" here3 {env.graph.nodes()}")
 #print(env.agent_position)
+net_param_list = ParameterList()
+for net in [env.agent_to_net.values()]:
+    net_param_list.append(net.parameters())
+
+neural_net_optim=torch.optim.Adam(params=net_param_list)
 
 obs_nets:dict = {agent:observation_processing_network(env.graph.number_of_nodes()) for agent in env.possible_agents}
 optimizers = {agent:torch.optim.Adam(obs_nets[agent].parameters()) for agent in env.agents}
@@ -54,10 +70,10 @@ while env.agents:
     for agent in env.agents:
         mental_map = env.mental_map[agent]
         mask = env.action_mask_to_node[int(env.agent_position[agent])]
-
+        agent_preds=agent
         # Forward pass
         # obs_nets is a dict of ActorCritic models
-        action_logits, value = obs_nets[agent](mental_map=mental_map, mask=mask)
+        action_logits, value = obs_nets[agent](mental_map=mental_map, mask=mask, agent_preds = agent_preds)
         
         # Sample action
         dist = Categorical(logits=action_logits)
@@ -102,17 +118,19 @@ while env.agents:
         # Retrieve stored variables from Phase 1
         log_prob = data["log_prob"]
         value = data["value"]
-
+        net_loss=0
+        
         # Calculate Loss
-        loss = compute_loss(log_prob, value, reward, next_value, done, GAMMA)
+        loss = compute_ac_loss(log_prob, value, reward, next_value,done, GAMMA) + net_loss
 
         # Optimization Step
         optimizers[agent].zero_grad()
         loss.backward()
         optimizers[agent].step()
         
+
         # Logging
         critic_loss_dict[agent] = loss.item()
-
+        
     # Logging
     logging.info(f"Rewards: {list(rewards.values())}")

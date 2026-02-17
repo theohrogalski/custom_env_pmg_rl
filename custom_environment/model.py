@@ -18,6 +18,7 @@ class observation_processing_network(torch.nn.Module):
     def __init__(self,number_of_nodes) :
         if torch.cuda.is_available():
             self.device = "cuda"
+            print("using cuda")
         else:
             self.device = "cpu"
         super().__init__()
@@ -38,7 +39,7 @@ class observation_processing_network(torch.nn.Module):
         self.gp_dict = {}
         self.history=[]
         self.add_laplacian = AddLaplacianEigenvectorPE(49)
-    def forward(self, mental_map:nx.Graph, mask:list):
+    def forward(self, mental_map:nx.Graph, mask:list,agent_preds):
         
         ##print(mental_map)
         mental_map = from_networkx(mental_map, group_node_attrs=["uncertainty","agent_presence","target"])
@@ -80,11 +81,12 @@ class observation_processing_network(torch.nn.Module):
             index.append(i)
         index = torch.tensor(index,dtype=torch.int64) 
         ##print(results)   
-        mental_map.x
+        mental_map.x = torch.stack(mental_map.x , torch.Tensor(agent_preds) , dim=2)
+        print(mental_map.x)
         results = self.actor(x=mental_map.x, index=index)
         ##print(results)
         #print(type(results))
-
+        
         ##print(type(results))
         ##print(mask)
         
