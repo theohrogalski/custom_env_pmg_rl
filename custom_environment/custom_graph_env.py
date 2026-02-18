@@ -13,6 +13,7 @@ from matplotlib.animation import FuncAnimation
 import matplotlib.pyplot as plt
 from torch import tensor
 from random import randint
+from neural_model import uncertainty_estimator as ue 
 from stable_baselines3 import DQN, PPO, A2C
 import torch
 from copy import copy
@@ -29,7 +30,6 @@ import itertools
 from pettingzoo.utils.agent_selector import agent_selector
 from pettingzoo.utils import wrappers
 import time
-from neural_model import uncertainty_estimator as ue
 ###print(plt.get_backend())
 
 class GraphEnv(pettingzoo.ParallelEnv):
@@ -73,7 +73,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
         self._cumulative_rewards = {agent:0 for agent in self.agents}
         self.num_moves = 0
         self.obs_dict = {node:torch.Tensor() for node in range(self.num_nodes)}
-        self.agent_to_net:dict = {agent:ue(5,5,5) for agent in self.possible_agents}
+        self.agent_to_net:dict = {agent:ue(5,out_dim=5,hidden_dim=10) for agent in self.possible_agents}
 
         self.model_path = "./saved_models"
         self.max_uncertainty:int = 100
@@ -133,6 +133,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
                     
                     self.action_mask_to_node[node][index] = 1
         ###print(self.action_mask_to_node)   
+        self.num_epochs=0
     def select_graph(self, load_param:int, loaded_graphml_name:str, output_name:str="default_name",):
         """
         Docstring for select_graph
@@ -308,7 +309,8 @@ class GraphEnv(pettingzoo.ParallelEnv):
             for node_index in range(len(self.graph.nodes)):
                 uncertainty_sum += self.graph.nodes[(node_index)]["uncertainty"]
             self.total_uncertainty_graph.append(uncertainty_sum)
-            rewards[agent] = self.d0*(1-(self.num_moves/self.max_moves))*self.graph.number_of_nodes()-uncertainty_sum*0.1
+
+            rewards[agent] = self.d0*(1-(self.num_moves/self.max_moves))*self.mental_map[agent].number_of_nodes()-uncertainty_sum*0.1
             ##print(rewards[agent])
         self.truncations = {
             agent: self.num_moves >= self.max_moves for agent in self.agents

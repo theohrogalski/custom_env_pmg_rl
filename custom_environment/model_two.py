@@ -5,6 +5,45 @@ from torch_geometric.utils import from_networkx, get_laplacian, to_dense_adj, ad
 import networkx as nx
 
 class observation_processing_network(torch.nn.Module):
+    def get_safe_logits(self, logits, x_state, edge_index, unc_net, threshold=0.8, eta=0.1):
+        """
+        logits: [50] tensor from the Actor
+        x_state: [50, 5] features
+        unc_net: The GCN (Architecture 1)
+        """
+        with torch.no_grad():
+            # 1. Get current 'Mental Map' from GCN
+            # predicted_u shape: [50, 1]
+            predicted_u = unc_net(x_state, edge_index)
+            
+            # 2. Calculate Current Safety h(x_t)
+            h_t = threshold - torch.max(predicted_u)
+            
+            # 3. Look-ahead: Predict h(x_t+1) for each possible move
+            # For simplicity in MARL, we check if moving to node 'j' 
+            # reduces uncertainty enough to satisfy the DCBF.
+            
+            # We create a safety mask. 1.0 = Safe, 0.0 = Blocked
+            safety_mask = torch.ones_like(logits)
+            
+            for node_idx in range(self.number_of_nodes):
+                # Heuristic: If GCN thinks node 'i' is already near the limit,
+                # and it's NOT the node we are moving to, the move might be unsafe.
+                print(type(predicted_u[node_idx]))
+                print(type(()))
+                if predicted_u[node_idx].item() > (threshold - eta * h_t):
+                    # If we don't move to this high-uncertainty node, 
+                    # we risk violating the barrier.
+                    pass 
+
+            # 4. Apply the Barrier: If h_t is dropping too fast, 
+            # we 'force' the logits toward the critical nodes.
+            if h_t < 0.2: # Buffer zone
+                critical_node = torch.argmax(predicted_u)
+                # Projection: Zero out all other logits, or heavily bias the critical one
+                logits[critical_node] += 10.0 
+                
+        return logits
     def __init__(self, number_of_nodes):
         super().__init__()
         self.number_of_nodes = number_of_nodes
@@ -31,14 +70,19 @@ class observation_processing_network(torch.nn.Module):
         evals, evecs = torch.linalg.eigh(L)
         return evecs[:, :k], evals[1] # [50, 2], Fiedler Value
 
-    def forward(self, mental_map_nx: nx.Graph, mask: list):
+    def forward(self, mental_map_nx: nx.Graph, mask: list,unc_net):
         # 1. Convert and Initial [50, 5] Construction
         data = from_networkx(mental_map_nx, group_node_attrs=["uncertainty", "agent_presence", "target"]).to(self.device)
         
         # Add Laplacian features [50, 2] to the [50, 3] raw features
         lap_ev, fiedler = self.compute_pyg_laplacian_features(data)
         x_combined = torch.cat([data.x, lap_ev], dim=1) # [50, 5]
-        
+        with torch.no_grad(): # Use no_grad here so Actor doesn't backprop through GCN
+            uncertainty_prediction = unc_net(x_combined, data.edge_index) # [50, 1]
+    
+    # 5. ENRICH THE STATE: Add the prediction as a 6th feature
+    # Now state is [50, 6] -> (Obs + Topology + Prediction)
+        x_enriched = torch.cat([x_combined, uncertainty_prediction], dim=1)
         # 2. Graph Processing
         edge_index, _ = add_self_loops(data.edge_index, num_nodes=50)
         
@@ -60,7 +104,7 @@ class observation_processing_network(torch.nn.Module):
         
         # MLPAggregation returns [1, number_of_nodes]
         logits = self.actor(x, index=idx)
-        
+        logits = self.get_safe_logits(logits,x,edge_index,unc_net)
         # Apply Mask (Safety/Valid actions)
         mask_tensor = torch.tensor(mask, device=self.device).float()
         masked_logits = logits.squeeze(0) * mask_tensor

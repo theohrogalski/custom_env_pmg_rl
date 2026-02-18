@@ -7,10 +7,10 @@ class uncertainty_estimator(Module):
         super().__init__()
         self.data=[]
         
-        self.gcnconv1 = (GCNConv(feature_dim,hidden_dim))
-        self.gcnconv2 = (GCNConv(feature_dim,hidden_dim))
+        self.gcnconv1 = (GCNConv(feature_dim,out_channels=5))
+        self.gcnconv2 = (GCNConv(feature_dim,out_channels=5))
 
-        self.lin =  torch.nn.Linear(feature_dim, hidden_dim,out_dim)
+        self.lin =  torch.nn.Linear(feature_dim, out_features=1)
                           
         
         self.optimizer = torch.optim.Adam(self.parameters(),lr=1e-3)
@@ -18,9 +18,12 @@ class uncertainty_estimator(Module):
 
     def forward(self,x,edge_index):
         assert x.shape == torch.Size([50,5])
+        print(x.shape)
         x = self.gcnconv1(x, edge_index)
-        print(f"here is {x.shape}")
+        #print(f"here is {x.shape}")
+        print(f"shape here is {x.shape}")
         x = torch.nn.functional.relu(x)
+
         print(f"here2 is {x.shape}")
 
         x = self.gcnconv2(x, edge_index)
