@@ -73,6 +73,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
         self._cumulative_rewards = {agent:0 for agent in self.agents}
         self.num_moves = 0
         self.obs_dict = {node:torch.Tensor() for node in range(self.num_nodes)}
+        self.agent_to_net:dict = {agent:ue(5,5,5) for agent in self.possible_agents}
 
         self.model_path = "./saved_models"
         self.max_uncertainty:int = 100
@@ -132,11 +133,6 @@ class GraphEnv(pettingzoo.ParallelEnv):
                     
                     self.action_mask_to_node[node][index] = 1
         ###print(self.action_mask_to_node)   
-        uncertainty_estimator = ue()  
-        node_to_net = {node:copy(uncertainty_estimator) for node in range(self.num_nodes)}
-        self.agent_to_net = {agent:copy(node_to_net) for agent in self.possible_agents}
-
-        self.predictions_to_agent = {agent:[] for agent in self.possible_agents}
     def select_graph(self, load_param:int, loaded_graphml_name:str, output_name:str="default_name",):
         """
         Docstring for select_graph
@@ -271,7 +267,10 @@ class GraphEnv(pettingzoo.ParallelEnv):
         rewards, obs, infos = {},{},{}
         # Loop through
         for agent in self.agents:
-            self.agent_position[agent] = action[agent].item()
+            
+            
+
+            self.agent_position[agent] = torch.multinomial(action[agent],num_samples=1).item()
 
             for node_idx in range(len(self.graph.nodes())):
                 
@@ -291,30 +290,18 @@ class GraphEnv(pettingzoo.ParallelEnv):
                     
                
             ego = nx.ego_graph(self.graph, int(self.agent_position[agent]), radius=2)
-            ego_nodes_list:list = [ego.nodes()]
+           # ego_nodes_list:list = [ego.nodes()]
 
-            for node in range(self.num_nodes):
-                if node in ego_nodes_list:
-                    self.agent_to_net[agent][node].data.append(
-                        self.graph.nodes[node]["uncertainty"]
-                                    )
-            pred_list=[]
-
-            for node in range(self.num_nodes):
-                pred_list=[]
-                pred_list.append(self.agent_to_filter[agent][node].forward())
-            self.predictions_to_agent[agent]=pred_list
+        
 
                 
-            ##print(f"before {self.mental_map[agent].number_of_nodes()}")
             
             self.mental_map[agent].add_nodes_from(ego.nodes(data=True))
             ##print(list(ego.nodes()))
             ##print(list(self.mental_map[agent].nodes()))
             ##print("added nodes")
             self.mental_map[agent].add_edges_from(ego.edges(data=True))
-            for node in self.mental_map[agent].nodes():
-                self.obs_dict[node] = torch.cat( (self.obs_dict[node], torch.Tensor(int(self.graph.nodes[node]["uncertainty"])) ))
+
             ##print(self.mental_map[agent].number_of_nodes())
 
             uncertainty_sum=0
