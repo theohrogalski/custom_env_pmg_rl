@@ -93,6 +93,8 @@ def compute_ac_loss(log_prob, value, reward, next_value, done, gamma=0.99):
     
     # 4. Critic Loss: MSE(value, target)
     # Use SmoothL1 or MSE
+    print(torch.Tensor([target]).shape)
+    print(torch.Tensor([value]).shape)
     critic_loss = mse_loss(torch.Tensor([value]), torch.Tensor([target]))
     
     # 5. Total Loss
@@ -118,7 +120,7 @@ GAMMA = 0.99
 critic_loss_dict = {}
 # Main Episode Loop
 while env.agents:
-    if env.num_episodes %1000==0 and env.num_episdoes!=0:
+    if env.num_epochs %1000==0 and env.num_epochs!=0:
         save_marl_checkpoint(env.episode_num,obs_nets,env.agent)
     actions={}
     step_data={}

@@ -180,6 +180,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
         ##print("got here")
   
     def reset(self):
+        self.num_epochs+=1
         print(len(self.total_uncertainty_graph))
         plt.plot(self.total_uncertainty_graph)
         plt.title(f"Uncertainty_Graph_{self.episode_num}")

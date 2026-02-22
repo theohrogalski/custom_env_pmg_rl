@@ -11,6 +11,9 @@ class observation_processing_network(torch.nn.Module):
         x_state: [50, 5] features
         unc_net: The GCN (Architecture 1)
         """
+        #print(x_state.shape)
+        #print(logits.shape)
+    
         with torch.no_grad():
             # 1. Get current 'Mental Map' from GCN
             # predicted_u shape: [50, 1]
@@ -29,8 +32,9 @@ class observation_processing_network(torch.nn.Module):
             for node_idx in range(self.number_of_nodes):
                 # Heuristic: If GCN thinks node 'i' is already near the limit,
                 # and it's NOT the node we are moving to, the move might be unsafe.
-                print(type(predicted_u[node_idx]))
-                print(type(()))
+                #print(type(predicted_u[node_idx]))
+                #print(type(()))
+                #print(predicted_u[node_idx].shape)
                 if predicted_u[node_idx].item() > (threshold - eta * h_t):
                     # If we don't move to this high-uncertainty node, 
                     # we risk violating the barrier.

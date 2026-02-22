@@ -18,18 +18,18 @@ class uncertainty_estimator(Module):
 
     def forward(self,x,edge_index):
         assert x.shape == torch.Size([50,5])
-        print(x.shape)
+        #print(x.shape)
         x = self.gcnconv1(x, edge_index)
         #print(f"here is {x.shape}")
-        print(f"shape here is {x.shape}")
+        #print(f"shape here is {x.shape}")
         x = torch.nn.functional.relu(x)
 
-        print(f"here2 is {x.shape}")
+        #print(f"here2 is {x.shape}")
 
         x = self.gcnconv2(x, edge_index)
 
         x = torch.nn.functional.relu(x)
-        
+
         return self.lin(x)
     
     def update_estimator(self, x, edge_index):
@@ -43,6 +43,12 @@ class uncertainty_estimator(Module):
             prediction = self.forward(x, edge_index)
             target = x.detach() 
             
+            #print(prediction.shape)
+            
+            #print(target.shape)
+            target = target[:,0].reshape(50,1)
+            
+            assert target.shape == torch.Size([50,1])
             loss = self.loss_f(prediction, target)
             loss.backward()
             self.optimizer.step()
