@@ -44,7 +44,10 @@ class GraphEnv(pettingzoo.ParallelEnv):
         "name": "graph_env_v0",
         "is_parallelizable":True
         }
-        
+        if torch.cuda.is_available():
+            self.device="cuda"
+        else:
+            self.device="cpu"
         self.render_mode=render_mode
         self.random_num = randint(0,10000)
         self.np_random_seed = int(np.random.randint(1, 10 + 1))
@@ -74,15 +77,17 @@ class GraphEnv(pettingzoo.ParallelEnv):
         self.num_moves = 0
         self.obs_dict = {node:torch.Tensor() for node in range(self.num_nodes)}
         self.agent_to_net:dict = {agent:ue(5,out_dim=5,hidden_dim=10) for agent in self.possible_agents}
+        for net in self.agent_to_net.values():
 
-        self.model_path = "./saved_models"
+            net.to(self.device)
+            print("device set")
+        self.model_path = "./saved_models" 
         self.max_uncertainty:int = 100
         self.mmap = {agent:nx.Graph() for agent in self.possible_agents}
         self.mistakes = {agent:0 for agent in self.possible_agents}
         ###print(f"node uncertainty is {self.node_unc}")
         self.rewards = {agent:0 for agent in self.agents}
         self.infos = {agent:{} for agent in self.agents}
-        self.covered = set()
         self.current_obs = {agent:None for agent in self.possible_agents}
         self.personal_graph = {agent:None for agent in self.possible_agents}
         #self.per_agent_covered = {agent:set() for agent in self.possible_agents}

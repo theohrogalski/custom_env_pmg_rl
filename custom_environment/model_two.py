@@ -49,11 +49,16 @@ class observation_processing_network(torch.nn.Module):
                 
         return logits
     def __init__(self, number_of_nodes):
+        
         super().__init__()
         self.number_of_nodes = number_of_nodes
-        self.device = "cpu"
+        if torch.cuda.is_available():
+            self.device="cuda"
+            #print("cuda")
+        else:
+            self.device="cpu"
         # 1. Feature Processing
-        self.graph_attention = GAT(in_channels=5, hidden_channels=8, num_layers=2, out_channels=5)
+        self.graph_attention = GAT(in_channels=6, hidden_channels=8, num_layers=2, out_channels=5)
         self.multihead = nn.MultiheadAttention(embed_dim=5, num_heads=1)
         self.transform_two = TransformerConv(5, 5, heads=1)
 
@@ -76,22 +81,30 @@ class observation_processing_network(torch.nn.Module):
 
     def forward(self, mental_map_nx: nx.Graph, mask: list,unc_net):
         # 1. Convert and Initial [50, 5] Construction
-        data = from_networkx(mental_map_nx, group_node_attrs=["uncertainty", "agent_presence", "target"]).to(self.device)
+        data = from_networkx(mental_map_nx, group_node_attrs=["uncertainty", "agent_presence", "target"])
         
         # Add Laplacian features [50, 2] to the [50, 3] raw features
         lap_ev, fiedler = self.compute_pyg_laplacian_features(data)
+        
         x_combined = torch.cat([data.x, lap_ev], dim=1) # [50, 5]
         with torch.no_grad(): # Use no_grad here so Actor doesn't backprop through GCN
             uncertainty_prediction = unc_net(x_combined, data.edge_index) # [50, 1]
     
     # 5. ENRICH THE STATE: Add the prediction as a 6th feature
     # Now state is [50, 6] -> (Obs + Topology + Prediction)
+        uncertainty_prediction = uncertainty_prediction.to(self.device)
+        x_combined = x_combined.to(self.device)
         x_enriched = torch.cat([x_combined, uncertainty_prediction], dim=1)
         # 2. Graph Processing
+        x_enriched = x_enriched.to(self.device)
         edge_index, _ = add_self_loops(data.edge_index, num_nodes=50)
         
         # GAT Layer
-        x = self.graph_attention(x_combined, edge_index)
+
+        x_enriched = x_enriched.to(self.device)
+        edge_index = edge_index.to(self.device)
+
+        x = self.graph_attention(x_enriched, edge_index)
         
         # Attention (Self-attention on the nodes)
         # Multihead expects [Seq, Batch, Embed] -> [50, 1, 5]

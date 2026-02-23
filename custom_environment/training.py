@@ -25,8 +25,8 @@ def save_marl_checkpoint(episode, obs_nets, unc_nets, optimizers, path="./checkp
     }
 
     # Save to a temporary file first, then rename (prevents corruption if job dies mid-save)
-    temp_path = f"{path}checkpoint_latest.tmp"
-    final_path = f"{path}checkpoint_ep_{episode}.pt"
+    temp_path = f"{path}checkpoint_latest_training_session_one.tmp"
+    final_path = f"{path}checkpoint_ep_{episode}_training_session_one.pt"
     
     torch.save(checkpoint, temp_path)
     os.rename(temp_path, final_path)
@@ -42,39 +42,17 @@ def calculate_unc_est_loss(predicted_value, actual_value):
     return (predicted_value-actual_value)^2
 
 cur_length_list = []
-def save_diagnostic_plots(step, agent_id, true_unc, pred_unc, reward_history, loss_history):
+def save_diagnostic_plots(step, agent_id,reward_history):
     """
     Saves a diagnostic figure to the /results folder.
     """
+    
     # Use 'Agg' backend for headless cluster environments
     import matplotlib
     matplotlib.use('Agg') 
     
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
-    
-    # --- Plot 1: Mental Map Accuracy (Node-by-Node) ---
-    nodes = np.arange(len(true_unc))
-    ax1.bar(nodes - 0.2, true_unc, width=0.4, label='Ground Truth', color='gray', alpha=0.5)
-    ax1.bar(nodes + 0.2, pred_unc, width=0.4, label='GCN Prediction', color='blue', alpha=0.7)
-    ax1.set_title(f"Agent {agent_id} | Mental Map Accuracy (Step {step})")
-    ax1.set_xlabel("Node ID")
-    ax1.set_ylabel("Uncertainty Value")
-    ax1.set_ylim(0, 1.1)
-    ax1.legend()
-
-    # --- Plot 2: Training Progress ---
-    ax2.plot(loss_history, label='Estimator Loss (MSE)', color='red')
-    ax2.set_ylabel('Loss', color='red')
-    ax2.tick_params(axis='y', labelcolor='red')
-    
-    ax2_twin = ax2.twinx()
-    ax2_twin.plot(reward_history, label='Cumulative Reward', color='green')
-    ax2_twin.set_ylabel('Reward', color='green')
-    ax2_twin.tick_params(axis='y', labelcolor='green')
-    
-    ax2.set_title(f"Training Progress (Agent {agent_id})")
-    ax2.set_xlabel("Steps (x100)")
-    
+    fig = plt.plot(reward_history)
+        
     plt.tight_layout()
     plt.savefig(f"./results/diag_agent_{agent_id}_step_{step}.png")
     plt.close()
@@ -104,24 +82,34 @@ def compute_ac_loss(log_prob, value, reward, next_value, done, gamma=0.99):
 num_nodes=50
 env = GraphEnv(num_nodes=num_nodes)
 #print(f" here3 {env.graph.nodes()}")
-#print(env.agent_position)
-
+#print(env.agent_position
+if torch.cuda.is_available():
+    dev="cuda"
+else:
+    dev="cpu"
 obs_nets:dict = {agent:observation_processing_network(env.graph.number_of_nodes()) for agent in env.possible_agents}
+for nets in obs_nets.values():
+    print("a")
+    nets.to(dev)
 optimizers = {agent:torch.optim.Adam(obs_nets[agent].parameters()) for agent in env.agents}
+
 gamma = 0.99
 
 critic_loss_dict:dict = {}
 #print("starting")
 import logging
-est_loss_history = []
 reward_total = 0
+reward_history:dict = {agent:[] for agent in env.possible_agents}
+
 # Hyperparameters
 GAMMA = 0.99
 critic_loss_dict = {}
 # Main Episode Loop
 while env.agents:
-    if env.num_epochs %1000==0 and env.num_epochs!=0:
-        save_marl_checkpoint(env.episode_num,obs_nets,env.agent)
+    if env.num_moves%1500 ==0 and env.num_moves !=0:
+        save_marl_checkpoint(episode=env.num_moves,obs_nets=obs_nets,unc_nets=env.agent_to_net,optimizers=optimizers)
+        for ag in env.agents:
+            save_diagnostic_plots(step=env.num_moves,agent_id=ag,reward_history=reward_history[agent])
     actions={}
     step_data={}
     # --- PHASE 1: COLLECT ACTIONS ---
@@ -146,7 +134,7 @@ while env.agents:
             "prediction": unc_net(x_state, edges).detach() # For Task 2 (DCBF)
         }
     
-    # TRIGGER FIGURE GENERATION
+    
     # --- PHASE 2: STEP ENVIRONMENT ---
     # We step ONCE with all actions
     # Note: PettingZoo returns dicts keyed by agent
@@ -157,4 +145,6 @@ while env.agents:
         # Logging
         
     # Logging
-    logging.info(f"Rewards: {list(rewards.values())}")
+    for agent in env.agents:
+        reward_history[agent].append(rewards[agent])
+ #   logging.info(f"Rewards: {list(rewards.values())}")
