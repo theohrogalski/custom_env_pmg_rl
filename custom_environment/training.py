@@ -10,7 +10,7 @@ import os
 from matplotlib import pyplot as plt
 from torch.nn.functional import mse_loss
 from gymnasium.wrappers import RecordEpisodeStatistics
-def save_marl_checkpoint(episode, obs_nets, unc_nets, optimizers, path="./checkpoints/"):
+def save_marl_checkpoint(episode, obs_nets, unc_nets, optimizers,epoch, path="./checkpoints/"):
     # Create directory if it doesn't exist
     if not os.path.exists(path):
         os.makedirs(path)
@@ -26,7 +26,7 @@ def save_marl_checkpoint(episode, obs_nets, unc_nets, optimizers, path="./checkp
 
     # Save to a temporary file first, then rename (prevents corruption if job dies mid-save)
     temp_path = f"{path}checkpoint_latest_training_session_one.tmp"
-    final_path = f"{path}checkpoint_ep_{episode}_training_session_one.pt"
+    final_path = f"{path}checkpoint_ep_{episode}_training_session_one_{epoch}.pt"
     
     torch.save(checkpoint, temp_path)
     os.rename(temp_path, final_path)
@@ -42,7 +42,7 @@ def calculate_unc_est_loss(predicted_value, actual_value):
     return (predicted_value-actual_value)^2
 
 cur_length_list = []
-def save_diagnostic_plots(step, agent_id,reward_history):
+def save_diagnostic_plots(step, agent_id,reward_history,epoch):
     """
     Saves a diagnostic figure to the /results folder.
     """
@@ -52,10 +52,25 @@ def save_diagnostic_plots(step, agent_id,reward_history):
     matplotlib.use('Agg') 
     
     fig = plt.plot(reward_history)
-        
+    
     plt.tight_layout()
-    plt.savefig(f"./results/diag_agent_{agent_id}_step_{step}.png")
+    plt.savefig(f"./results/diag_agent_{agent_id}_step_{step}_{epoch}.png")
     plt.close()
+def save_diagnostic_plots_total(step, agent_id,reward_history,epoch):
+    """
+    Saves a diagnostic figure to the /results folder.
+    """
+    
+    # Use 'Agg' backend for headless cluster environments
+    import matplotlib
+    matplotlib.use('Agg') 
+    
+    fig = plt.plot(reward_history)
+    
+    plt.tight_layout()
+    plt.savefig(f"./results/diag_agent_{agent_id}_step_{step}_{epoch}.png")
+    plt.close()
+
 def compute_ac_loss(log_prob, value, reward, next_value, done, gamma=0.99):
     # 1. Calculate Target (TD Target)
     # If done, next value is 0
@@ -99,23 +114,25 @@ critic_loss_dict:dict = {}
 #print("starting")
 import logging
 reward_total = 0
-reward_history:dict = {agent:[] for agent in env.possible_agents}
 
 # Hyperparameters
 GAMMA = 0.99
 critic_loss_dict = {}
 # Main Episode Loop
+reward_history:dict = {agent:[] for agent in env.possible_agents}
+
 while env.agents:
-    if env.num_moves%1500 ==0 and env.num_moves !=0:
-        save_marl_checkpoint(episode=env.num_moves,obs_nets=obs_nets,unc_nets=env.agent_to_net,optimizers=optimizers)
+    if env.num_moves==9999:
+        reward_history:dict = {agent:[] for agent in env.possible_agents}
+    if env.num_moves%2000 ==0 and env.num_moves !=0:
+        save_marl_checkpoint(episode=env.num_moves,obs_nets=obs_nets,unc_nets=env.agent_to_net,optimizers=optimizers,epoch=env.num_epochs)
         for ag in env.agents:
-            save_diagnostic_plots(step=env.num_moves,agent_id=ag,reward_history=reward_history[agent])
+            save_diagnostic_plots(step=env.num_moves,agent_id=ag,reward_history=reward_history[agent],epoch=env.num_epochs)
     actions={}
     step_data={}
     # --- PHASE 1: COLLECT ACTIONS ---
     for agent in env.agents:
     # 1. Run the forward pass
-    # NOTE: We now get the [50, 5] state (x_state) back from the forward pass
 
         logits, value, x_state, edges = obs_nets[agent](env.mental_map[agent], env.action_mask_to_node[int(agent[6:])],env.agent_to_net[agent])
         unc_net = env.agent_to_net[agent]
@@ -136,8 +153,6 @@ while env.agents:
     
     
     # --- PHASE 2: STEP ENVIRONMENT ---
-    # We step ONCE with all actions
-    # Note: PettingZoo returns dicts keyed by agent
     
     obs, rewards, terminations, truncations, infos = env.step(actions)
 

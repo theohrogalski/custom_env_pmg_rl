@@ -97,6 +97,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
         # Linearly Decaying Parameters
         self.d0= 1
         self.d_k=0
+        
         starting_graph:nx.Graph = nx.Graph()
         for n in range(self.num_nodes):
             starting_graph.add_node(int(n))
@@ -243,11 +244,13 @@ class GraphEnv(pettingzoo.ParallelEnv):
         ##print(type(deg))
         for item in deg:
             degree_list.append(item)
-        for node in range(len(self.graph.nodes())):
+        for node in range(self.num_nodes):
             # Resetting uncertainty
             self.graph.nodes[node]["uncertainty"] = 0
-            #Resetting number of connections
-            self.graph.nodes[node]["connections"] = degree_list[node]
+        unc_check=0
+        for node in range(self.num_nodes):
+            unc_check+=self.graph.nodes[node]["uncertainty"] 
+        assert unc_check ==0
         self.agent_position={agent:0 for agent in self.possible_agents}
         return self.agent_position, {}
     @functools.lru_cache(maxsize=None)
@@ -278,10 +281,10 @@ class GraphEnv(pettingzoo.ParallelEnv):
             
 
             self.agent_position[agent] = torch.multinomial(action[agent],num_samples=1).item()
-
-            for node_idx in range(len(self.graph.nodes())):
+            agent_pos_vals = self.agent_position.values()
+            for node_idx in range(self.num_nodes):
                 
-                if node_idx in (self.agent_position.values()):
+                if node_idx in (agent_pos_vals):
                     ##print(f"here {list(self.graph.nodes())}")
                     self.graph.nodes[(node_idx)]["agent_presence"] = 1
                 else:
@@ -292,17 +295,14 @@ class GraphEnv(pettingzoo.ParallelEnv):
 
                     self.graph.nodes[(node_idx)]["uncertainty"]-=1
                     ##print("minused uncertainty")
-                elif self.graph.nodes[(node_idx)]["uncertainty"]<self.max_uncertainty and self.graph.nodes[node_idx]["target"]==1:
+               # elif self.graph.nodes[(node_idx)]["uncertainty"]<self.max_uncertainty and self.graph.nodes[node_idx]["target"]==1:
+                elif self.graph.nodes[node_idx]["target"]==1:
                     self.graph.nodes[(node_idx)]["uncertainty"]+=1
                     
                
             ego = nx.ego_graph(self.graph, int(self.agent_position[agent]), radius=2)
            # ego_nodes_list:list = [ego.nodes()]
 
-        
-
-                
-            
             self.mental_map[agent].add_nodes_from(ego.nodes(data=True))
             ##print(list(ego.nodes()))
             ##print(list(self.mental_map[agent].nodes()))
@@ -312,11 +312,11 @@ class GraphEnv(pettingzoo.ParallelEnv):
             ##print(self.mental_map[agent].number_of_nodes())
 
             uncertainty_sum=0
-            for node_index in range(len(self.graph.nodes)):
-                uncertainty_sum += self.graph.nodes[(node_index)]["uncertainty"]
-            self.total_uncertainty_graph.append(uncertainty_sum)
-
-            rewards[agent] = self.d0*(1-(self.num_moves/self.max_moves))*self.mental_map[agent].number_of_nodes()-uncertainty_sum*0.1
+            for node_index in range(self.num_nodes):
+                uncertainty_sum += self.mental_map[agent].nodes[(node_index)]["uncertainty"]
+            #TODO: study global vs local rewards 
+            #rewards[agent] = self.d0*(1-(self.num_moves/self.max_moves))*self.num_nodes-uncertainty_sum*0.1
+            rewards[agent] = self.d0*(self.mental_map[agent].number_of_nodes())-uncertainty_sum
             ##print(rewards[agent])
         self.truncations = {
             agent: self.num_moves >= self.max_moves for agent in self.agents

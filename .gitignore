@@ -32,3 +32,5 @@ ppo.py
 *.log
 venv
 
+*.png
+*.pt
