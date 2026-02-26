@@ -44,7 +44,7 @@ def calculate_unc_est_loss(predicted_value, actual_value):
     return (predicted_value-actual_value)^2
 
 cur_length_list = []
-def save_diagnostic_plots(step, agent_id,reward_history,epoch):
+def save_diagnostic_plots(step, agents,reward_history,epoch,uncertainty_history):
     """
     Saves a diagnostic figure to the /results folder.
     """
@@ -53,25 +53,30 @@ def save_diagnostic_plots(step, agent_id,reward_history,epoch):
     import matplotlib
     matplotlib.use('Agg') 
     
-    fig = plt.plot(reward_history)
+    fig,ax= plt.subplots(3,3)
+    ax1,ax2,ax3,ax4,ax5, ax6,ax7,ax8,ax9 = ax.flatten()
+    obj_list = [ax2,ax3,ax4,ax5]
+
+    ax1.set_title("Uncertainty History")
+    ax1.set_xlabel("Timesteps")
+    ax1.set_ylabel("Uncertainty")
+    ax1.plot(uncertainty_history)   
     
-    plt.tight_layout()
-    plt.savefig(f"./results/diag_agent_{agent_id}_step_{step}_{epoch}.png")
+#--------------------------------------------------------------
+    i=0
+    for axes in obj_list:
+        
+        axes.set_xlabel("Timesteps")
+        axes.set_ylabel("Reward per agent")
+        axes.set_title(f"Reward History: agent_{i}")
+        axes.plot(reward_history)
+        i+=1
+#--------------------------------------------------------------
+    
+
+    plt.savefig(f"step:_{step}_epoch:_{epoch}.png")
     plt.close()
-def save_diagnostic_plots_total(step, agent_id,reward_history,epoch):
-    """
-    Saves a diagnostic figure to the /results folder.
-    """
-    
-    # Use 'Agg' backend for headless cluster environments
-    import matplotlib
-    matplotlib.use('Agg') 
-    
-    fig = plt.plot(reward_history)
-    
-    plt.tight_layout()
-    plt.savefig(f"./results/diag_agent_{agent_id}_step_{step}_{epoch}.png")
-    plt.close()
+
 
 def compute_ac_loss(log_prob, value, reward, next_value, done, gamma=0.99):
     # 1. Calculate Target (TD Target)
@@ -118,7 +123,7 @@ else:
     dev="cpu"
 obs_nets:dict = {agent:observation_processing_network(env.graph.number_of_nodes()) for agent in env.possible_agents}
 for nets in obs_nets.values():
-    print("a")
+    # print("a")
     nets.to(dev)
 optimizers = {agent:torch.optim.Adam(obs_nets[agent].parameters()) for agent in env.agents}
 
@@ -134,14 +139,19 @@ GAMMA = 0.99
 critic_loss_dict = {}
 # Main Episode Loop
 reward_history:dict = {agent:[] for agent in env.possible_agents}
-
+uncertainty_history:list = []
 while env.agents:
     if env.num_moves==9999:
+        logger.info(f"Reward at {env.num_epochs}_{env.num_moves}")
+        logger.info(reward_history)
         reward_history:dict = {agent:[] for agent in env.possible_agents}
+        logger.info(f"Uncertainty at {env.num_epochs}_{env.step}")
+        logger.info(uncertainty_history)
+
+        uncertainty_history=[]
     if env.num_moves%2000 ==0 and env.num_moves !=0:
         save_marl_checkpoint(episode=env.num_moves,obs_nets=obs_nets,unc_nets=env.agent_to_net,optimizers=optimizers,epoch=env.num_epochs)
-        for ag in env.agents:
-            save_diagnostic_plots(step=env.num_moves,agent_id=ag,reward_history=reward_history[agent],epoch=env.num_epochs)
+        save_diagnostic_plots(step=env.num_moves,agents=env.possible_agents,reward_history=reward_history[agent],epoch=env.num_epochs,uncertainty_history=uncertainty_history)
     actions={}
     step_data={}
     # --- PHASE 1: COLLECT ACTIONS ---
@@ -196,4 +206,5 @@ while env.agents:
     # Logging
     for agent in env.agents:
         reward_history[agent].append(rewards[agent])
-    # logging.info(f"Rewards: {list(rewards.values())}")
+    uncertainty_history.append(env.tot_unc)
+ #   logging.info(f"Rewards: {list(rewards.values())}")
