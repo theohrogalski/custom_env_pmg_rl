@@ -278,9 +278,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
         # Loop through
         for agent in self.agents:
             
-            
-
-            self.agent_position[agent] = torch.multinomial(action[agent],num_samples=1).item()
+            self.agent_position[agent] = torch.max(action[agent]).item()
             agent_pos_vals = self.agent_position.values()
             for node_idx in range(self.num_nodes):
                 
