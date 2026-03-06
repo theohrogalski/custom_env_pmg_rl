@@ -18,7 +18,7 @@ class observation_processing_network(torch.nn.Module):
             # 1. Get current 'Mental Map' from GCN
             # predicted_u shape: [50, 1]
             predicted_u = unc_net(x_state, edge_index)
-            
+
             # 2. Calculate Current Safety h(x_t)
             h_t = threshold - torch.max(predicted_u)
             
@@ -33,19 +33,17 @@ class observation_processing_network(torch.nn.Module):
                 # Heuristic: If GCN thinks node 'i' is already near the limit,
                 # and it's NOT the node we are moving to, the move might be unsafe.
                 #print(type(predicted_u[node_idx]))
-                #print(type(()))
                 #print(predicted_u[node_idx].shape)
                 if predicted_u[node_idx].item() > (threshold - eta * h_t):
                     # If we don't move to this high-uncertainty node, 
                     # we risk violating the barrier.
-                    pass 
-
+                   logits[node_idx]+=1
             # 4. Apply the Barrier: If h_t is dropping too fast, 
             # we 'force' the logits toward the critical nodes.
             if h_t < 0.2: # Buffer zone
                 critical_node = torch.argmax(predicted_u)
                 # Projection: Zero out all other logits, or heavily bias the critical one
-                logits[critical_node] += 10.0 
+                logits[critical_node] += 1
                 
         return logits
     def __init__(self, number_of_nodes):

@@ -98,8 +98,9 @@ class GraphEnv(pettingzoo.ParallelEnv):
         # Linearly Decaying Parameters
         self.d0= 1
         self.d_k=0
-        
+        self.agent_to_no_targ={agent:0 for agent in self.possible_agents}
         starting_graph:nx.Graph = nx.Graph()
+        
         for n in range(self.num_nodes):
             starting_graph.add_node(int(n))
         for node in starting_graph.nodes():
@@ -124,13 +125,13 @@ class GraphEnv(pettingzoo.ParallelEnv):
         self.episode_num=0
         self.reward_graph={agent:[] for agent in self.possible_agents}
         self.total_uncertainty_graph=[]
+        self.buffer_length=10
         self.node_history = {node:[] for node in self.graph.nodes}
         self.neighbors_iter = {node:list(self.graph.neighbors(node))for node in self.graph.nodes}
         self.action_mask_to_node = {node:[0]*(num_nodes) for node in self.graph}
         """for node in self.graph.nodes:
             ##print(len(list(self.graph.neighbors(n=node))))"""
-
-
+        self.agent_to_buffer = {agent:[] for agent in self.possible_agents}
         for node in self.graph.nodes:
             for index in range(self.graph.number_of_nodes()):
                 ###print(index)
@@ -186,6 +187,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
         ##print("got here")
   
     def reset(self):
+        print(f"resetting at {self.num_moves}")
         self.tot_unc =0
 
         self.num_epochs+=1
@@ -270,6 +272,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
     }
 
     def step(self, action:dict):
+        
         values = [data["uncertainty"] for node, data in self.graph.nodes(data=True)]
         #print(values)
         #print(self.agent_position.values())
@@ -280,7 +283,8 @@ class GraphEnv(pettingzoo.ParallelEnv):
         # Loop through
         for agent in self.agents:
             
-            self.agent_position[agent] = torch.max(action[agent]).item()
+            self.agent_position[agent] = action[agent]
+                                
             agent_pos_vals = self.agent_position.values()
             for node_idx in range(self.num_nodes):
                 
@@ -312,17 +316,32 @@ class GraphEnv(pettingzoo.ParallelEnv):
 
             ##print(self.mental_map[agent].number_of_nodes())
             self.tot_unc+=sum(self.graph.nodes[node]["uncertainty"] for node in range(self.num_nodes))
-            uncertainty_sum=sum(self.mental_map[agent].nodes[node]["uncertainty"] for node in range(self.num_nodes))
+            uncertainty_avg=sum(self.mental_map[agent].nodes[node]["uncertainty"] for node in range(self.num_nodes))/self.mental_map[agent].number_of_nodes()
             #print(self.mental_map[agent].number_of_nodes())
             
             #TODO: study global vs local rewards 
             #rewards[agent] = self.d0*(1-(self.num_moves/self.max_moves))*self.num_nodes-uncertainty_sum*0.1
+            diff=0
             
+            if len(self.agent_to_buffer[agent])<self.buffer_length:
+                self.agent_to_buffer[agent].append(uncertainty_avg)
             #rewards[agent] = self.d0*(self.mental_map[agent].number_of_nodes())-uncertainty_sum*0.01
-            target_param=0
+            else:
+                self.agent_to_buffer[agent].pop(0)
+                self.agent_to_buffer[agent].append(uncertainty_avg)
+                diff = self.agent_to_buffer[agent][-1]-self.agent_to_buffer[agent][0]
+            searching_var = 0
+            sit_var = 0
             if self.graph.nodes[self.agent_position[agent]]["target"]==1:
-                target_param=1
-            rewards[agent] = -uncertainty_sum*0.01+target_param
+                sit_var=5
+            if self.graph.nodes[self.agent_position[agent]]["target"]==0:
+                self.agent_to_no_targ[agent]=1
+            if self.graph.nodes[self.agent_position[agent]]["target"]==1 and self.agent_to_no_targ[agent]==1:
+                self.agent_to_no_targ[agent]=0
+                searching_var=10
+
+            
+            rewards[agent] = -uncertainty_avg*0.01+searching_var+sit_var-diff
             ##print(rewards[agent])
         self.truncations = {
             agent: self.num_moves >= self.max_moves for agent in self.agents
