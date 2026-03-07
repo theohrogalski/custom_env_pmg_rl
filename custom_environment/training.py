@@ -35,10 +35,10 @@ def save_marl_checkpoint(episode, obs_nets, unc_nets, optimizers,epoch, path="./
     
     # Also keep a 'latest' pointer for easy reloading
     torch.save(checkpoint, f"{path}latest.pt")
-    print(f"--- Checkpoint saved at Episode {episode} ---")
+    #print(f"--- Checkpoint saved at Episode {episode} ---")
 logger = logging.getLogger("logger_train")
 logging.basicConfig(filename='logger_train.log', level=logging.INFO)
-print("logger created")
+#print("logger created")
 logger.info("------ Logger Started ------")
 def calculate_unc_est_loss(predicted_value, actual_value):
     return (predicted_value-actual_value)^2
@@ -87,15 +87,16 @@ def compute_ac_loss(log_prob, value, reward, next_value, done, gamma=0.99):
     target = reward + (gamma * next_value * mask)
     
     # 2. Calculate Advantage (Target - Baseline)
-    #print(f"vale {value}")
+    ##print(f"vale {value}")
 
     # Detach target because we don't want to backprop through the target for the critic
-    #print(f"target {target}")
+    ##print(f"target {target}")
 
     advantage = target - value
-    #print(f"adv {advantage}")
+    ##print(f"adv {advantage}")
     # 3. Actor Loss: -log_prob * advantage
-    #print(f"log {log_prob}")
+    ##print(f"log {log_prob}")
+    #print(log_prob)
     actor_loss = - log_prob * advantage
     
 
@@ -105,33 +106,33 @@ def compute_ac_loss(log_prob, value, reward, next_value, done, gamma=0.99):
 
 
     critic_loss = mse_loss(torch.Tensor([value]), torch.Tensor([target]),reduction='mean')
-    #print((f"act {actor_loss}"))
-    #print((f"crt {critic_loss}"))
+    ##print((f"act {actor_loss}"))
+    ##print((f"crt {critic_loss}"))
     # 5. Total Loss
     total_loss = actor_loss + (0.5 * critic_loss)
-    #print(f"tot {total_loss}")
+    ##print(f"tot {total_loss}")
     assert total_loss.shape == torch.Size([1])
     return total_loss
 
 
 num_nodes=50
 env = GraphEnv(num_nodes=num_nodes)
-#print(f" here3 {env.graph.nodes()}")
-#print(env.agent_position
+##print(f" here3 {env.graph.nodes()}")
+##print(env.agent_position
 if torch.cuda.is_available():
     dev="cuda"
 else:
     dev="cpu"
 obs_nets:dict = {agent:observation_processing_network(env.graph.number_of_nodes()) for agent in env.possible_agents}
 for nets in obs_nets.values():
-    # print("a")
+    # #print("a")
     nets.to(dev)
 optimizers = {agent:torch.optim.Adam(obs_nets[agent].parameters()) for agent in env.agents}
 
 gamma = 0.99
 
 critic_loss_dict:dict = {}
-#print("starting")
+##print("starting")
 import logging
 reward_total = 0
 
@@ -165,12 +166,12 @@ while env.agents:
         # This call now only handles the GCN logic
         unc_loss = unc_net.update_estimator(x_state.detach(), edges)
         logger.info(f"unc_loss @ {env.num_moves} is {unc_loss}")
+        #print(f"logits are {logits}")
+        #print(logits.shape)
         dist = Categorical(logits=logits)
         actions[agent] = dist.sample()
         
-        print(actions[agent].shape)
         log_prob[agent] = dist.log_prob(actions[agent])
-
         # Store for Phase 3
         step_data[agent] = {
             "log_prob":log_prob,
@@ -181,18 +182,18 @@ while env.agents:
     # --- PHASE 2: STEP ENVIRONMENT ---
     """for agent in env.agents:
         logger.info(f"Action dict is {torch.max(actions[agent])}")"""
-    #print(actions)
+    ##print(actions)
     obs, rewards, terminations, truncations, infos = env.step(actions)
 
     for agent, data in step_data.items():
     # 1. Prepare Ground Truths (Moved to GPU)
         reward = torch.tensor([rewards[agent]], device=dev)
-        next_val = torch.tensor([value], device=dev)
 
         _,next_val,_,_ = obs_nets[agent](env.mental_map[agent], env.action_mask_to_node[int(agent[6:])],env.agent_to_net[agent])
         # 2. Retrieve the stored Log Prob and Value from Phase 1
         #log_prob = data["log_prob"] #
         value = data["value"]
+        print(value)
         log_prob = data["log_prob"]      
         if env.step==env.max_moves-1:
             done=1
@@ -202,7 +203,7 @@ while env.agents:
         # 3. CALCULATE THE COMBINED LOSS
         # This function (compute_ac_loss) combines Actor and Critic math
 #       log_prob=torch.max(log_prob)
-        total_loss = compute_ac_loss(log_prob, value, reward, next_val, done)
+        total_loss = compute_ac_loss(log_prob[agent], value, reward, next_val, done)
 
         # 4. PERFORM THE UPDATE
         # This updates BOTH the Actor and Critic weights simultaneously

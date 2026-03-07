@@ -24,12 +24,13 @@ class uncertainty_estimator(Module):
 
     def forward(self,x,edge_index):
         #print(type(edge_index))
+        assert x.shape == torch.Size([50,5])
         edge_index = edge_index.to(self.device)
         #print(edge_index.device)
 
         x= x.to(self.device)
         #print(x.device)
-        assert x.shape == torch.Size([50,5])
+        print(x.shape)
         #print(x.shape)
         x = self.gcnconv1(x, edge_index)
         #print(f"here is {x.shape}")

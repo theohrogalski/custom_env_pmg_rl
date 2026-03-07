@@ -283,7 +283,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
         # Loop through
         for agent in self.agents:
             
-            self.agent_position[agent] = action[agent]
+            self.agent_position[agent] = action[agent].item()
                                 
             agent_pos_vals = self.agent_position.values()
             for node_idx in range(self.num_nodes):
