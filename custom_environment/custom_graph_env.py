@@ -35,6 +35,7 @@ import time
 class GraphEnv(pettingzoo.ParallelEnv):
     def __init__(self, num_nodes=50, num_agents=4, seed=1,render_mode="human", graph_selection=0):
         self.seed=seed
+        self.occupied_targets=0
         self.tot_unc =0
         self.num_nodes = num_nodes
 
@@ -77,7 +78,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
         self._cumulative_rewards = {agent:0 for agent in self.agents}
         self.num_moves = 0
         self.obs_dict = {node:torch.Tensor() for node in range(self.num_nodes)}
-        self.agent_to_net:dict = {agent:ue(5,out_dim=5,hidden_dim=10) for agent in self.possible_agents}
+        self.agent_to_net:dict = {agent:ue(5,out_dim=1,hidden_dim=5) for agent in self.possible_agents}
         for net in self.agent_to_net.values():
 
             net.to(self.device)
@@ -124,7 +125,6 @@ class GraphEnv(pettingzoo.ParallelEnv):
             self.mental_map[agent].add_edges_from(ego.edges(data=True))
         self.episode_num=0
         self.reward_graph={agent:[] for agent in self.possible_agents}
-        self.total_uncertainty_graph=[]
         self.buffer_length=10
         self.node_history = {node:[] for node in self.graph.nodes}
         self.neighbors_iter = {node:list(self.graph.neighbors(node))for node in self.graph.nodes}
@@ -272,39 +272,41 @@ class GraphEnv(pettingzoo.ParallelEnv):
     }
 
     def step(self, action:dict):
-        
-        values = [data["uncertainty"] for node, data in self.graph.nodes(data=True)]
         #print(values)
+        trg_cnt=0
         #print(self.agent_position.values())
         # Reset rewards, observations, infos
-        assert(len(self.graph.nodes())>0)
+        #assert(len(self.graph.nodes())>0)
         ##print(f" here2 {self.graph.nodes()}")
         rewards, obs, infos = {},{},{}
         # Loop through
+
         for agent in self.agents:
             
             self.agent_position[agent] = action[agent].item()
-                                
+            count=0                
             agent_pos_vals = self.agent_position.values()
-            for node_idx in range(self.num_nodes):
-                
-                if node_idx in (agent_pos_vals):
-                    ##print(f"here {list(self.graph.nodes())}")
-                    self.graph.nodes[(node_idx)]["agent_presence"] = 1
-                else:
-                    self.graph.nodes[(node_idx)]["agent_presence"] = 0
-                # 
-               # self.node_history[agent].append(nodes)
-                if self.graph.nodes[node_idx]["target"]==1 and self.graph.nodes[(node_idx)]["agent_presence"] == 1 and self.graph.nodes[(node_idx)]["uncertainty"]>0:
+        for node_idx in range(self.num_nodes):
+            
+            if node_idx in (agent_pos_vals):
+                ##print(f"here {list(self.graph.nodes())}")
+                self.graph.nodes[(node_idx)]["agent_presence"] = 1
+            else:
+                self.graph.nodes[(node_idx)]["agent_presence"] = 0
+            # 
+            # self.node_history[agent].append(nodes)
+            if self.graph.nodes[node_idx]["target"]==1 and self.graph.nodes[(node_idx)]["agent_presence"] == 1 and self.graph.nodes[(node_idx)]["uncertainty"]>0:
 
-                    self.graph.nodes[(node_idx)]["uncertainty"]-=1
-                    #print("minused uncertainty")
-                    
-               # elif self.graph.nodes[(node_idx)]["uncertainty"]<self.max_uncertainty and self.graph.nodes[node_idx]["target"]==1:
-                elif self.graph.nodes[node_idx]["target"]==1 and self.graph.nodes[(node_idx)]["agent_presence"] == 0:
-                    self.graph.nodes[(node_idx)]["uncertainty"]+=1
-                    
-               
+                self.graph.nodes[(node_idx)]["uncertainty"] -= 1
+                trg_cnt+=1
+
+            
+            # elif self.graph.nodes[(node_idx)]["uncertainty"]<self.max_uncertainty and self.graph.nodes[node_idx]["target"]==1:
+            elif self.graph.nodes[node_idx]["target"]==1 and self.graph.nodes[(node_idx)]["agent_presence"] == 0:
+                count+=1
+                self.graph.nodes[(node_idx)]["uncertainty"]+=1
+            #print(f"Count for uncertainty values increased is {count}")
+        for agent in self.agents:   
             ego = nx.ego_graph(self.graph, int(self.agent_position[agent]), radius=2)
            # ego_nodes_list:list = [ego.nodes()]
 
@@ -315,7 +317,6 @@ class GraphEnv(pettingzoo.ParallelEnv):
             self.mental_map[agent].add_edges_from(ego.edges(data=True))
 
             ##print(self.mental_map[agent].number_of_nodes())
-            self.tot_unc+=sum(self.graph.nodes[node]["uncertainty"] for node in range(self.num_nodes))
             uncertainty_avg=sum(self.mental_map[agent].nodes[node]["uncertainty"] for node in range(self.num_nodes))/self.mental_map[agent].number_of_nodes()
             #print(self.mental_map[agent].number_of_nodes())
             
@@ -331,9 +332,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
                 self.agent_to_buffer[agent].append(uncertainty_avg)
                 diff = self.agent_to_buffer[agent][-1]-self.agent_to_buffer[agent][0]
             searching_var = 0
-            sit_var = 0
-            if self.graph.nodes[self.agent_position[agent]]["target"]==1:
-                sit_var=5
+           
             if self.graph.nodes[self.agent_position[agent]]["target"]==0:
                 self.agent_to_no_targ[agent]=1
             if self.graph.nodes[self.agent_position[agent]]["target"]==1 and self.agent_to_no_targ[agent]==1:
@@ -341,7 +340,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
                 searching_var=10
 
             
-            rewards[agent] = -uncertainty_avg*0.01+searching_var+sit_var-diff
+            rewards[agent] = -uncertainty_avg*0.01+searching_var-diff
             ##print(rewards[agent])
         self.truncations = {
             agent: self.num_moves >= self.max_moves for agent in self.agents
@@ -353,7 +352,8 @@ class GraphEnv(pettingzoo.ParallelEnv):
         
         obs = {agent:{"observation":self.mental_map[agent],"action_mask":self.action_mask_to_node[(self.agent_position[agent])]} for agent in self.agents}
 
-
+        self.tot_unc=sum(self.graph.nodes[node]["uncertainty"] for node in range(self.num_nodes))
+        self.occupied_targets=trg_cnt
         return obs, rewards, self.terminations, self.truncations, infos
     def observe(self, agent):
         # Every agent sees its mental map

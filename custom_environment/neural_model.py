@@ -13,8 +13,6 @@ class uncertainty_estimator(Module):
             self.device="cpu"
         self.data=[]
         
-        self.gcnconv1 = (GCNConv(feature_dim,out_channels=5))
-        self.gcnconv2 = (GCNConv(feature_dim,out_channels=5))
 
         self.lin =  torch.nn.Linear(feature_dim, out_features=1,device=self.device)
                           
@@ -29,41 +27,27 @@ class uncertainty_estimator(Module):
         #print(edge_index.device)
 
         x= x.to(self.device)
-        #print(x.device)
-        print(x.shape)
-        #print(x.shape)
-        x = self.gcnconv1(x, edge_index)
-        #print(f"here is {x.shape}")
-        #print(f"shape here is {x.shape}")
-        x = torch.nn.functional.relu(x)
-
-        #print(f"here2 is {x.shape}")
-
-        x = self.gcnconv2(x, edge_index)
-
-        x = torch.nn.functional.relu(x)
         return self.lin(x)
     
     def update_estimator(self, x, edge_index):
         x.to(self.device)
         edge_index.to(self.device)
     # Enable gradients explicitly in case the parent loop turned them off
-        with torch.enable_grad():
-            self.optimizer.zero_grad()
-            
-            # Ensure the model is in training mode
-            self.train() 
-            
-            prediction = self.forward(x, edge_index)
-            target = x.detach() 
-            
-            #print(prediction.shape)
-            
-            #print(target.shape)
-            target = target[:,0].reshape(50,1)
-            
-            assert target.shape == torch.Size([50,1])
-            loss = self.loss_f(prediction, target)
-            loss.backward()
-            self.optimizer.step()
+        
+        # Ensure the model is in training mode
+        self.train() 
+        
+        prediction = self.forward(x, edge_index)
+        target = x.detach() 
+        
+        #print(prediction.shape)
+        
+        #print(target.shape)
+        target = target[:,0].reshape(50,1)
+        
+        #assert target.shape == torch.Size([50,1])
+        loss = self.loss_f(prediction, target)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
         return loss.item()

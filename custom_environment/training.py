@@ -27,8 +27,8 @@ def save_marl_checkpoint(episode, obs_nets, unc_nets, optimizers,epoch, path="./
     }
 
     # Save to a temporary file first, then rename (prevents corruption if job dies mid-save)
-    temp_path = f"./results/{path}checkpoint_latest_training_session_one.tmp"
-    final_path = f"./results/{path}checkpoint_ep_{episode}_training_session_one_{epoch}.pt"
+    temp_path = f"{path}checkpoint_latest_training_session_one.tmp"
+    final_path = f"{path}checkpoint_ep_{episode}_training_session_one_{epoch}.pt"
     
     torch.save(checkpoint, temp_path)
     os.rename(temp_path, final_path)
@@ -37,9 +37,10 @@ def save_marl_checkpoint(episode, obs_nets, unc_nets, optimizers,epoch, path="./
     torch.save(checkpoint, f"{path}latest.pt")
     #print(f"--- Checkpoint saved at Episode {episode} ---")
 logger = logging.getLogger("logger_train")
-logging.basicConfig(filename='logger_train.log', level=logging.INFO)
+logging.basicConfig(filename='debug_4.log', level=logging.INFO)
 #print("logger created")
 logger.info("------ Logger Started ------")
+logger.info("num_moves, agent, total_loss, action, uncertainty, value, next_val, occ_nodes, unc_loss")
 def calculate_unc_est_loss(predicted_value, actual_value):
     return (predicted_value-actual_value)^2
 
@@ -63,7 +64,7 @@ def save_diagnostic_plots(step, agents,reward_history,epoch,uncertainty_history)
     ax1.plot(uncertainty_history)   
     
 #--------------------------------------------------------------
-    i=0
+    i=0 
     for axes in obj_list:
         
         axes.set_xlabel("Timesteps")
@@ -72,7 +73,7 @@ def save_diagnostic_plots(step, agents,reward_history,epoch,uncertainty_history)
         axes.plot(reward_history)
         i+=1
 #--------------------------------------------------------------
-    
+
 
     plt.savefig(f"step:_{step}_epoch:_{epoch}.png")
     plt.close()
@@ -143,20 +144,25 @@ critic_loss_dict = {}
 reward_history:dict = {agent:[] for agent in env.possible_agents}
 uncertainty_history:list = []
 while env.agents:
+    #print(env.num_moves)
     if env.num_moves==env.max_moves-2:
-        logger.info(f"Reward at {env.num_epochs}_{env.num_moves}")
-        logger.info(reward_history)
-        reward_history:dict = {agent:[] for agent in env.possible_agents}
-        logger.info(f"Uncertainty at {env.num_epochs}_{env.step}")
-        logger.info(uncertainty_history)
+        print("Resetting...")
 
+        #logger.info(f"Reward at {env.num_epochs}_{env.num_moves}")
+        #logger.info(reward_history)
+        reward_history:dict = {agent:[] for agent in env.possible_agents}
+        #logger.info(f"Uncertainty at {env.num_epochs}_{env.step}")
+        #logger.info(uncertainty_history)
         uncertainty_history=[]
-    if env.num_moves%2000 ==0 and env.num_moves !=0:
+
+    if env.num_moves%2000 == 0 and env.num_moves !=0:
         save_marl_checkpoint(episode=env.num_moves,obs_nets=obs_nets,unc_nets=env.agent_to_net,optimizers=optimizers,epoch=env.num_epochs)
         save_diagnostic_plots(step=env.num_moves,agents=env.possible_agents,reward_history=reward_history[agent],epoch=env.num_epochs,uncertainty_history=uncertainty_history)
+    
     actions={}
     step_data={}
     log_prob={}
+    unc_loss_dict = {}
     # --- PHASE 1: COLLECT ACTIONS ---
     for agent in env.agents:
     # 1. Run the forward pass
@@ -165,9 +171,11 @@ while env.agents:
         unc_net = env.agent_to_net[agent]
         # This call now only handles the GCN logic
         unc_loss = unc_net.update_estimator(x_state.detach(), edges)
-        logger.info(f"unc_loss @ {env.num_moves} is {unc_loss}")
+        #logger.info(f"unc_loss @ {env.num_moves} is {unc_loss}")
         #print(f"logits are {logits}")
         #print(logits.shape)
+        unc_loss_dict[agent]=unc_loss
+
         dist = Categorical(logits=logits)
         actions[agent] = dist.sample()
         
@@ -193,7 +201,7 @@ while env.agents:
         # 2. Retrieve the stored Log Prob and Value from Phase 1
         #log_prob = data["log_prob"] #
         value = data["value"]
-        print(value)
+        #print(value)
         log_prob = data["log_prob"]      
         if env.step==env.max_moves-1:
             done=1
@@ -208,6 +216,7 @@ while env.agents:
         # 4. PERFORM THE UPDATE
         # This updates BOTH the Actor and Critic weights simultaneously
         optimizers[agent].zero_grad()
+        logger.info(f"{env.num_moves}, {agent}, {total_loss.item()}, {actions[agent].item()}, {env.tot_unc}, {value.item()}, {next_val.item()}, {env.occupied_targets}, {unc_loss_dict[agent]}")
         total_loss.backward()
         optimizers[agent].step()
         
