@@ -5,7 +5,7 @@ from torch_geometric.utils import from_networkx, get_laplacian, to_dense_adj, ad
 import networkx as nx
 
 class observation_processing_network(torch.nn.Module):
-    def get_safe_logits(self, logits, x_state, edge_index, unc_net, threshold=0.8, eta=0.1):
+    def get_safe_logits(self, move_num, logits, x_state, edge_index, unc_net, threshold=0.8, eta=0.1):
         """
         logits: [50] tensor from the Actor
         x_state: [50, 5] features
@@ -17,7 +17,7 @@ class observation_processing_network(torch.nn.Module):
         with torch.no_grad():
             # 1. Get current 'Mental Map' from GCN
             # predicted_u shape: [50, 1]
-            predicted_u = unc_net(x_state, edge_index)
+            predicted_u = unc_net(x_state, edge_index, move_num)
 
             # 2. Calculate Current Safety h(x_t)
             h_t = threshold - torch.max(predicted_u)
@@ -70,38 +70,38 @@ class observation_processing_network(torch.nn.Module):
         )
         self.actor = nn.Linear(self.number_of_nodes*5,self.number_of_nodes)
         self.critic = nn.Linear(in_features=self.number_of_nodes*3, out_features=1)
-
     def compute_pyg_laplacian_features(self, the_data, k=2):
         edge_index, _ = get_laplacian(the_data.edge_index, normalization='sym', num_nodes=self.number_of_nodes)
         L = to_dense_adj(edge_index, max_num_nodes=self.number_of_nodes).squeeze(0)
         evals, evecs = torch.linalg.eigh(L)
         return evecs[:, :k], evals[1] # [50, 2], Fiedler Value
 
-    def forward(self, mental_map_nx: nx.Graph, mask: list,unc_net):
-        
+    def forward(self, mental_map_nx: nx.Graph, mask: list,unc_net,num_moves):
         data = from_networkx(mental_map_nx, group_node_attrs=["uncertainty", "agent_presence", "target"])
         # Add Laplacian features [50, 2] to the [50, 3] raw features
         lap_ev, fiedler = self.compute_pyg_laplacian_features(data)
         ###print(lap_ev.shape)
         data_x = (data.x).to(self.device).float()
+
         data_x=data_x.flatten()
+        print(data_x.device)
         value = self.critic(data_x)
         #print(f"value is here {value}")
         
         x_combined = torch.cat([data.x, lap_ev], dim=1) # [50, 5]
-        assert x_combined.shape == torch.Size([50,5])
-        with torch.no_grad(): # Use no_grad here so Actor doesn't backprop through GCN
+        #assert x_combined.shape == torch.Size([50,5])
+         # Use no_grad here so Actor doesn't backprop through GCN
 
-            uncertainty_prediction = unc_net(x_combined, data.edge_index) # [50, 1]
+        uncertainty_prediction = unc_net(x_combined, data.edge_index,num_moves) # [50, 1]
     
     # 5. ENRICH THE STATE: Add the prediction as a 6th feature
     # Now state is [50, 6] -> (Obs + Topology + Prediction)
         uncertainty_prediction = uncertainty_prediction.to(self.device)
         x_combined = x_combined.to(self.device)
-        
-        x_enriched = torch.cat([x_combined, uncertainty_prediction], dim=1)
+        #print(x_combined.shape)
+        #print(uncertainty_prediction.shape)
+        x_enriched = torch.cat([x_combined, uncertainty_prediction],1)
         # 2. Graph Processing
-        x_enriched = x_enriched.to(self.device)
         edge_index, _ = add_self_loops(data.edge_index, num_nodes=self.number_of_nodes)
         
         # GAT Layer
@@ -114,13 +114,13 @@ class observation_processing_network(torch.nn.Module):
 
         # Attention (Self-attention on the nodes)
         # Multihead expects [Seq, Batch, Embed] -> [50, 1, 5]
-        x_att = x.unsqueeze(1)
+        """x_att = x.unsqueeze(1)
         
         attn_out, _ = self.multihead(x_att, x_att, x_att)
         ##print(attn_out.shape)
         x = attn_out.squeeze(1)
         # Transformer Layer
-        x = self.transform_two(x, edge_index)
+        x = self.transform_two(x, edge_index)"""
         
         ##print(f"x is {x}")
         # 3. Actor-Critic Output
@@ -133,7 +133,7 @@ class observation_processing_network(torch.nn.Module):
         #print(logits.shape)
         ##print(logits.shape)
         ##print(f"logit shape here is {logits.shape}")
-        logits = self.get_safe_logits(logits,x,edge_index,unc_net)
+        logits = self.get_safe_logits(logits=logits,x_state=x,edge_index=edge_index,unc_net=unc_net, move_num=num_moves)
         ##print(f"here logits shape are {logits.shape}")
         ##print(f"logit shape here is {logits.shape}")
 

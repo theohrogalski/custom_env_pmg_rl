@@ -5,6 +5,7 @@ from torch.nn.modules.container import ParameterList
 from torch.distributions import Categorical
 from model_two import observation_processing_network
 import logging
+from math import trunc
 import numpy as np
 import os
 from matplotlib import pyplot as plt
@@ -37,7 +38,7 @@ def save_marl_checkpoint(episode, obs_nets, unc_nets, optimizers,epoch, path="./
     torch.save(checkpoint, f"{path}latest.pt")
     #print(f"--- Checkpoint saved at Episode {episode} ---")
 logger = logging.getLogger("logger_train")
-logging.basicConfig(filename='debug_4.log', level=logging.INFO)
+logging.basicConfig(filename='./logs/debug_8.log', level=logging.INFO)
 #print("logger created")
 logger.info("------ Logger Started ------")
 logger.info("num_moves, agent, total_loss, action, uncertainty, value, next_val, occ_nodes, unc_loss")
@@ -116,7 +117,7 @@ def compute_ac_loss(log_prob, value, reward, next_value, done, gamma=0.99):
     return total_loss
 
 
-num_nodes=50
+num_nodes=20
 env = GraphEnv(num_nodes=num_nodes)
 ##print(f" here3 {env.graph.nodes()}")
 ##print(env.agent_position
@@ -124,7 +125,7 @@ if torch.cuda.is_available():
     dev="cuda"
 else:
     dev="cpu"
-obs_nets:dict = {agent:observation_processing_network(env.graph.number_of_nodes()) for agent in env.possible_agents}
+obs_nets:dict = {agent:observation_processing_network(env.graph.number_of_nodes())for agent in env.possible_agents}
 for nets in obs_nets.values():
     # #print("a")
     nets.to(dev)
@@ -145,20 +146,14 @@ reward_history:dict = {agent:[] for agent in env.possible_agents}
 uncertainty_history:list = []
 while env.agents:
     #print(env.num_moves)
-    if env.num_moves==env.max_moves-2:
-        print("Resetting...")
-
-        #logger.info(f"Reward at {env.num_epochs}_{env.num_moves}")
-        #logger.info(reward_history)
-        reward_history:dict = {agent:[] for agent in env.possible_agents}
-        #logger.info(f"Uncertainty at {env.num_epochs}_{env.step}")
-        #logger.info(uncertainty_history)
-        uncertainty_history=[]
-
-    if env.num_moves%2000 == 0 and env.num_moves !=0:
+    if env.num_moves%200 == 0 and env.num_moves !=0:
         save_marl_checkpoint(episode=env.num_moves,obs_nets=obs_nets,unc_nets=env.agent_to_net,optimizers=optimizers,epoch=env.num_epochs)
         save_diagnostic_plots(step=env.num_moves,agents=env.possible_agents,reward_history=reward_history[agent],epoch=env.num_epochs,uncertainty_history=uncertainty_history)
-    
+        env.reset()
+        uncertainty_history = []
+        reward_history:dict = {agent:[] for agent in env.possible_agents}
+        
+
     actions={}
     step_data={}
     log_prob={}
@@ -167,10 +162,10 @@ while env.agents:
     for agent in env.agents:
     # 1. Run the forward pass
 
-        logits, value, x_state, edges = obs_nets[agent](env.mental_map[agent], env.action_mask_to_node[int(agent[6:])],env.agent_to_net[agent])
+        logits, value, x_state, edges = obs_nets[agent](env.mental_map[agent], env.action_mask_to_node[int(agent[6:])],env.agent_to_net[agent], num_moves=env.num_moves)
         unc_net = env.agent_to_net[agent]
         # This call now only handles the GCN logic
-        unc_loss = unc_net.update_estimator(x_state.detach(), edges)
+        unc_loss = unc_net.update_estimator(x_state.detach(), edges,env.num_moves)
         #logger.info(f"unc_loss @ {env.num_moves} is {unc_loss}")
         #print(f"logits are {logits}")
         #print(logits.shape)
@@ -184,7 +179,7 @@ while env.agents:
         step_data[agent] = {
             "log_prob":log_prob,
             "value": value,
-            "prediction": unc_net(x_state, edges).detach() # For Task 2 (DCBF)
+            "prediction": unc_net(x_state, edges,env.num_moves).detach() # For Task 2 (DCBF)
         }
 
     # --- PHASE 2: STEP ENVIRONMENT ---
@@ -197,7 +192,7 @@ while env.agents:
     # 1. Prepare Ground Truths (Moved to GPU)
         reward = torch.tensor([rewards[agent]], device=dev)
 
-        _,next_val,_,_ = obs_nets[agent](env.mental_map[agent], env.action_mask_to_node[int(agent[6:])],env.agent_to_net[agent])
+        _,next_val,_,_ = obs_nets[agent](env.mental_map[agent], env.action_mask_to_node[int(agent[6:])],env.agent_to_net[agent],num_moves=env.num_moves)
         # 2. Retrieve the stored Log Prob and Value from Phase 1
         #log_prob = data["log_prob"] #
         value = data["value"]
@@ -216,7 +211,7 @@ while env.agents:
         # 4. PERFORM THE UPDATE
         # This updates BOTH the Actor and Critic weights simultaneously
         optimizers[agent].zero_grad()
-        logger.info(f"{env.num_moves}, {agent}, {total_loss.item()}, {actions[agent].item()}, {env.tot_unc}, {value.item()}, {next_val.item()}, {env.occupied_targets}, {unc_loss_dict[agent]}")
+        logger.info(f"{env.num_moves}, {agent}, {int(total_loss.item())}, {actions[agent].item()}, {env.tot_unc}, {int(value.item())}, {int(next_val.item())}, {env.occupied_targets}, {int(unc_loss_dict[agent])}")
         total_loss.backward()
         optimizers[agent].step()
         
@@ -224,4 +219,4 @@ while env.agents:
     for agent in env.agents:
         reward_history[agent].append(rewards[agent])
     uncertainty_history.append(env.tot_unc)
- #   logging.info(f"Rewards: {list(rewards.values())}")
+ #  logging.info(f"Rewards: {list(rewards.values())}")
