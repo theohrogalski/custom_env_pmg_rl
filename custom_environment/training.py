@@ -28,9 +28,9 @@ def save_marl_checkpoint(episode, obs_nets, unc_nets, optimizers,epoch, path="./
     }
 
     # Save to a temporary file first, then rename (prevents corruption if job dies mid-save)
-    temp_path = f"{path}checkpoint_latest_training_session_one.tmp"
-    final_path = f"{path}checkpoint_ep_{episode}_training_session_one_{epoch}.pt"
-    
+    temp_path = f"{path}checkpoint_latest_training_session_two.tmp"
+    final_path = f"{path}checkpoint_ep_{episode}_training_session_two_{epoch}.pt"
+    print("saving ckpt")
     torch.save(checkpoint, temp_path)
     os.rename(temp_path, final_path)
     
@@ -38,7 +38,7 @@ def save_marl_checkpoint(episode, obs_nets, unc_nets, optimizers,epoch, path="./
     torch.save(checkpoint, f"{path}latest.pt")
     #print(f"--- Checkpoint saved at Episode {episode} ---")
 logger = logging.getLogger("logger_train")
-logging.basicConfig(filename='./logs/debug_8.log', level=logging.INFO)
+logging.basicConfig(filename='debug_8.log', level=logging.INFO)
 #print("logger created")
 logger.info("------ Logger Started ------")
 logger.info("num_moves, agent, total_loss, action, uncertainty, value, next_val, occ_nodes, unc_loss")
@@ -117,7 +117,7 @@ def compute_ac_loss(log_prob, value, reward, next_value, done, gamma=0.99):
     return total_loss
 
 
-num_nodes=20
+num_nodes=100
 env = GraphEnv(num_nodes=num_nodes)
 ##print(f" here3 {env.graph.nodes()}")
 ##print(env.agent_position
@@ -143,16 +143,19 @@ GAMMA = 0.99
 critic_loss_dict = {}
 # Main Episode Loop
 reward_history:dict = {agent:[] for agent in env.possible_agents}
+max_iters=1000
+num_iters=0
 uncertainty_history:list = []
-while env.agents:
+while env.agents and max_iters>num_iters:
     #print(env.num_moves)
-    if env.num_moves%200 == 0 and env.num_moves !=0:
+    if env.num_moves%749 == 0 and env.num_moves !=0:
         save_marl_checkpoint(episode=env.num_moves,obs_nets=obs_nets,unc_nets=env.agent_to_net,optimizers=optimizers,epoch=env.num_epochs)
         save_diagnostic_plots(step=env.num_moves,agents=env.possible_agents,reward_history=reward_history[agent],epoch=env.num_epochs,uncertainty_history=uncertainty_history)
         env.reset()
         uncertainty_history = []
         reward_history:dict = {agent:[] for agent in env.possible_agents}
-        
+        num_iters+=1
+
 
     actions={}
     step_data={}

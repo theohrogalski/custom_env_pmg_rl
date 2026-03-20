@@ -12,7 +12,7 @@ class uncertainty_estimator(Module):
         else: 
             self.device="cpu"
         self.data=[]
-        self.num_nodes=20
+        self.num_nodes=100
 
             # optional second layer for better graph depth                  
         self.lin = torch.nn.Linear(2,1)

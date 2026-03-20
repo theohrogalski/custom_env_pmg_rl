@@ -70,6 +70,7 @@ class observation_processing_network(torch.nn.Module):
         )
         self.actor = nn.Linear(self.number_of_nodes*5,self.number_of_nodes)
         self.critic = nn.Linear(in_features=self.number_of_nodes*3, out_features=1)
+
     def compute_pyg_laplacian_features(self, the_data, k=2):
         edge_index, _ = get_laplacian(the_data.edge_index, normalization='sym', num_nodes=self.number_of_nodes)
         L = to_dense_adj(edge_index, max_num_nodes=self.number_of_nodes).squeeze(0)
@@ -82,9 +83,9 @@ class observation_processing_network(torch.nn.Module):
         lap_ev, fiedler = self.compute_pyg_laplacian_features(data)
         ###print(lap_ev.shape)
         data_x = (data.x).to(self.device).float()
-
+        
         data_x=data_x.flatten()
-        print(data_x.device)
+        #print(data_x.device)
         value = self.critic(data_x)
         #print(f"value is here {value}")
         

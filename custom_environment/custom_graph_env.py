@@ -33,19 +33,22 @@ import time
 ###print(plt.get_backend())
 
 class GraphEnv(pettingzoo.ParallelEnv):
-    def __init__(self, num_nodes=20, num_agents=4, seed=1,render_mode="human", graph_selection=0):
+    def __init__(self, num_nodes=100, num_agents=15, seed=1,render_mode="human", graph_selection=0):
         self.seed=seed
         self.occupied_targets=0
         self.tot_unc =0
         self.num_nodes = num_nodes
 
         self.render_mode = 2
-        self.render_flag = False
+        self.render_flag = Falsef
         self.metadata = {
         "render_modes": ["human"],  
         "name": "graph_env_v0",
         "is_parallelizable":True
         }
+        self.visit_list = [0]*self.num_nodes
+        self.longest_time_without_a_visit=(0,0)	
+
         if torch.cuda.is_available():
             self.device="cuda"
         else:
@@ -53,7 +56,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
         self.render_mode=render_mode
         self.random_num = randint(0,10000)
         self.np_random_seed = int(np.random.randint(1, 10 + 1))
-        self.graph:nx.Graph = self.select_graph(load_param=1,output_name=f"graph_{self.random_num}",loaded_graphml_name="./graphs/node_20_target_7")
+        self.graph:nx.Graph = self.select_graph(load_param=1,output_name=f"graph_{self.random_num}",loaded_graphml_name="./graphs/node_100_target_23")
         ##print(f"Before: {list(self.graph.nodes)} | Type: {type(list(self.graph.nodes)[0])}")
         
         # 2. Define your type conversion (e.g., str -> int)
@@ -95,7 +98,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
         #self.per_agent_covered = {agent:set() for agent in self.possible_agents}
         self.terminations = {agent:False for agent in self.agents}
 
-        self.max_moves=200
+        self.max_moves=750
         # Linearly Decaying Parameters
         self.d0= 1
         self.d_k=0
@@ -135,8 +138,8 @@ class GraphEnv(pettingzoo.ParallelEnv):
         self.action_mask_to_node = {node:[0]*(num_nodes) for node in self.graph}
         """for node in self.graph.nodes:
             ##print(len(list(self.graph.neighbors(n=node))))"""
-        self.agent_to_buffer = {agent:[] for agent in self.possible_agents}
-        print(self.action_mask_to_node[0])
+        self.agent_to_two_recent_unc = {agent:[0,0] for agent in self.possible_agents}
+        #print(self.action_mask_to_node[0])
 
         for node in self.graph.nodes:
             for index in range(self.graph.number_of_nodes()):
@@ -274,7 +277,16 @@ class GraphEnv(pettingzoo.ParallelEnv):
     }
 
     def step(self, action:dict):
-        #print(values)
+        #print(values)for node in self.graph.nodes():
+        for node in self.graph.nodes():
+            if self.graph.nodes[node]["agent_presence"]==0:
+                self.visit_list[node]+=1
+                if self.visit_list[node]>self.longest_time_without_a_visit[0]:
+                    self.longest_time_without_a_visit=(max(self.visit_list),self.visit_list.index(max(self.visit_list)))
+            else:
+                self.visit_list[node]=0
+            
+		
         trg_cnt=0
         #print(self.agent_position.values())
         # Reset rewards, observations, infos
@@ -309,9 +321,16 @@ class GraphEnv(pettingzoo.ParallelEnv):
                 self.graph.nodes[(node_idx)]["uncertainty"]+=1
             #print(f"Count for uncertainty values increased is {count}")
         for agent in self.agents:   
+            spread_out_term=0
             ego = nx.ego_graph(self.graph, int(self.agent_position[agent]), radius=2)
            # ego_nodes_list:list = [ego.nodes()]
-
+            self.agent_to_two_recent_unc[agent][0]=0
+            
+            for node in ego.nodes():
+                if ego.nodes[node]["agent_presence"]==1:
+                    spread_out_term +=1
+                self.agent_to_two_recent_unc[agent][0]+=ego.nodes[node]["uncertainty"]
+            
             self.mental_map[agent].add_nodes_from(ego.nodes(data=True))
             ##print(list(ego.nodes()))
             ##print(list(self.mental_map[agent].nodes()))
@@ -319,12 +338,12 @@ class GraphEnv(pettingzoo.ParallelEnv):
             self.mental_map[agent].add_edges_from(ego.edges(data=True))
 
             ##print(self.mental_map[agent].number_of_nodes())
-            uncertainty_avg=sum(self.mental_map[agent].nodes[node]["uncertainty"] for node in range(self.num_nodes))/self.mental_map[agent].number_of_nodes()
+            #uncertainty_avg=sum(self.mental_map[agent].nodes[node]["uncertainty"] for node in range(self.num_nodes))/self.mental_map[agent].number_of_nodes()
             #print(self.mental_map[agent].number_of_nodes())
             
             #TODO: study global vs local rewards 
             #rewards[agent] = self.d0*(1-(self.num_moves/self.max_moves))*self.num_nodes-uncertainty_sum*0.1
-            diff=0
+            #diff=0
             
             """if len(self.agent_to_buffer[agent])<self.buffer_length:
                 self.agent_to_buffer[agent].append(uncertainty_avg)
@@ -335,14 +354,20 @@ class GraphEnv(pettingzoo.ParallelEnv):
                 diff = self.agent_to_buffer[agent][-1]-self.agent_to_buffer[agent][0]"""         
            
            
-            if self.graph.nodes[self.agent_position[agent]]["target"]==1:
+            """if self.graph.nodes[self.agent_position[agent]]["target"]==1:
                 sit_var=5
             else:
-                sit_var=0
+                sit_var=0"""
+            
             pos_entropy=0
             if self.last_state[agent] != self.agent_position[agent]:
-                pos_entropy=5
-            rewards[agent] = -uncertainty_avg*0.01+sit_var+pos_entropy
+                pos_entropy=1
+            # Get the uncertainty difference
+            unc_diff = self.agent_to_two_recent_unc[agent][1]-self.agent_to_two_recent_unc[agent][0]
+            # Old state = New state 
+            self.agent_to_two_recent_unc[agent][1]=self.agent_to_two_recent_unc[agent][0]
+
+            rewards[agent] =  -(spread_out_term*spread_out_term)+pos_entropy+unc_diff
             ##print(rewards[agent])
         self.truncations = {
             agent: self.num_moves >= self.max_moves for agent in self.agents
@@ -352,8 +377,8 @@ class GraphEnv(pettingzoo.ParallelEnv):
                 print("true")
         self.num_moves+=1
         
-        if self.render_mode == "human":
-            self.render()
+        """if self.render_mode == "human":
+            self.render()"""
         
         obs = {agent:{"observation":self.mental_map[agent],"action_mask":self.action_mask_to_node[(self.agent_position[agent])]} for agent in self.agents}
 
@@ -365,16 +390,16 @@ class GraphEnv(pettingzoo.ParallelEnv):
         # Every agent sees its mental map
         return self.mental_map[agent]
     def render(self):
-       pass
-        #plt.clf()
-        ###print(self.agent_position)
-        #plt.subplot(2,1,1)
-        #nx.draw_networkx(self.graph)
+       
+        plt.clf()
+        #print(self.agent_position)
+        plt.subplot(2,1,1)
+        nx.draw_networkx(self.graph)
         
         ###print(self.ly)
-       """ if self.num_moves%50==0:
+        if self.num_moves%50==0:
             plt.subplot(2,1,2)
-            plt.pause(1)"""
+            plt.pause(1)
 if __name__ == "__main__":
     env = GraphEnv()
     env.create_custom_nx_graph(output_name="int_name_graph")
