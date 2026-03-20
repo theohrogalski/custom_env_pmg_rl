@@ -40,7 +40,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
         self.num_nodes = num_nodes
 
         self.render_mode = 2
-        self.render_flag = Falsef
+        self.render_flag = False
         self.metadata = {
         "render_modes": ["human"],  
         "name": "graph_env_v0",
