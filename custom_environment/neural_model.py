@@ -3,7 +3,7 @@ from torch.nn import Module
 import networkx as nx
 from torch_geometric.nn import GCNConv
 class uncertainty_estimator(Module):
-    def __init__(self, feature_dim,hidden_dim,out_dim):
+    def __init__(self, feature_dim,hidden_dim,out_dim,num_nodes):
         super().__init__()
 
         if torch.cuda.is_available():
@@ -12,7 +12,7 @@ class uncertainty_estimator(Module):
         else: 
             self.device="cpu"
         self.data=[]
-        self.num_nodes=100
+        self.num_nodes=num_nodes
 
             # optional second layer for better graph depth                  
         self.lin = torch.nn.Linear(2,1)

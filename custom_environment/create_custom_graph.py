@@ -2,7 +2,7 @@ import networkx as nx
 import random 
 import itertools
 from random import randint
-def create_custom_nx_graph(num_nodes=100, output_name:str="random_output_graph", random_chance_param_target:int=20, random_chance_param_edge:int=20) -> None:
+def create_custom_nx_graph(num_nodes=50, output_name:str="node_50", random_chance_param_target:int=20, random_chance_param_edge:int=20) -> None:
     r_graph = nx.Graph()
     for i in range(num_nodes):
         r_graph.add_node(int(i))

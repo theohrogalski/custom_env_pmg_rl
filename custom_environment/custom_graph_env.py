@@ -56,7 +56,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
         self.render_mode=render_mode
         self.random_num = randint(0,10000)
         self.np_random_seed = int(np.random.randint(1, 10 + 1))
-        self.graph:nx.Graph = self.select_graph(load_param=1,output_name=f"graph_{self.random_num}",loaded_graphml_name="./graphs/node_100_target_23")
+        self.graph:nx.Graph = self.select_graph(load_param=1,output_name=f"graph_{self.random_num}",loaded_graphml_name=f"./graphs/for_testing/node_{self.num_nodes}")
         ##print(f"Before: {list(self.graph.nodes)} | Type: {type(list(self.graph.nodes)[0])}")
         
         # 2. Define your type conversion (e.g., str -> int)
@@ -81,7 +81,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
         self._cumulative_rewards = {agent:0 for agent in self.agents}
         self.num_moves = 0
         self.obs_dict = {node:torch.Tensor() for node in range(self.num_nodes)}
-        self.agent_to_net:dict = {agent:ue(5,out_dim=1,hidden_dim=5) for agent in self.possible_agents}
+        self.agent_to_net:dict = {agent:ue(5,out_dim=1,hidden_dim=5,num_nodes=self.num_nodes) for agent in self.possible_agents}
         for net in self.agent_to_net.values():
 
             net.to(self.device)
@@ -133,7 +133,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
         self.reward_graph={agent:[] for agent in self.possible_agents}
         self.buffer_length=10
         self.node_history = {node:[] for node in self.graph.nodes}
-        print(self.graph.nodes)
+        #print(self.graph.nodes)
         self.neighbors_iter = {node:list(self.graph.neighbors(node)) for node in self.graph.nodes}
         self.action_mask_to_node = {node:[0]*(num_nodes) for node in self.graph}
         """for node in self.graph.nodes:
@@ -146,7 +146,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
                 ###print(index)
                 ###print(self.neighbors_iter[node])
                 if ((index) in (self.neighbors_iter[node])) or index==int(node) :
-                    print(index)
+                    #print(index)
                     self.action_mask_to_node[node][index] = 1
         ###print(self.action_mask_to_node)   
         self.num_epochs=0
