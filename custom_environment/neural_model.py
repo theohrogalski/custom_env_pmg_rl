@@ -55,6 +55,7 @@ class uncertainty_estimator(Module):
             self.train() 
             
             prediction = self.forward(x, edge_index)
+            print(prediction.shape)
             target = x.detach() 
             
             #print(prediction.shape)

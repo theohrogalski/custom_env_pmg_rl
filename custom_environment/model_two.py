@@ -5,48 +5,38 @@ from torch_geometric.utils import from_networkx, get_laplacian, to_dense_adj, ad
 import networkx as nx
 
 class observation_processing_network(torch.nn.Module):
-    def get_safe_logits(self, logits, x_state, edge_index, unc_net, threshold=0.8, eta=0.1):
+    def get_safe_action_mask(self,mask, x_state, edge_index, unc_net, threshold=100, eta=0.1):
         """
-        logits: [50] tensor from the Actor
-        x_state: [50, 5] features
-        unc_net: The GCN (Architecture 1)
-        """
-        ##print(x_state.shape)
-        ##print(logits.shape)
-    
+    Returns a binary mask [50] where 1.0 = Mathematically Safe, 0.0 = Forbidden.
+    """
         with torch.no_grad():
-            # 1. Get current 'Mental Map' from GCN
-            # predicted_u shape: [50, 1]
-            predicted_u = unc_net(x_state, edge_index)
+            # 1. Current Safety h(x_t)
+            predicted_u_current = unc_net(x_state, edge_index)
+            h_t = threshold - torch.max(predicted_u_current)
 
-            # 2. Calculate Current Safety h(x_t)
-            h_t = threshold - torch.max(predicted_u)
+            # 2. Define the Barrier Bound
+            # The paper's condition: h(x_t+1) >= (1 - eta) * h(x_t)
+            lower_bound = (1 - eta) * h_t
             
-            # 3. Look-ahead: Predict h(x_t+1) for each possible move
-            # For simplicity in MARL, we check if moving to node 'j' 
-            # reduces uncertainty enough to satisfy the DCBF.
-            
-            # We create a safety mask. 1.0 = Safe, 0.0 = Blocked
-            safety_mask = torch.ones_like(logits)
-            
+            # 3. Predict h(x_t+1) for EVERY possible action (node)
+            safe_mask = torch.zeros(self.number_of_nodes)
             for node_idx in range(self.number_of_nodes):
-                # Heuristic: If GCN thinks node 'i' is already near the limit,
-                # and it's NOT the node we are moving to, the move might be unsafe.
-                ##print(type(predicted_u[node_idx]))
-                ##print(predicted_u[node_idx].shape)
-                if predicted_u[node_idx].item() > (threshold - eta * h_t):
-                    # If we don't move to this high-uncertainty node, 
-                    # we risk violating the barrier.
-                   logits[node_idx]+=1
-            # 4. Apply the Barrier: If h_t is dropping too fast, 
-            # we 'force' the logits toward the critical nodes.
-            if h_t < 0.2: # Buffer zone
-                critical_node = torch.argmax(predicted_u)
-                # Projection: Zero out all other logits, or heavily bias the critical one
-                print(logits)
-                logits[critical_node] += 1
+                # Evaluate the safety of the specific target node
+                # h(x_t+1) = threshold - uncertainty_at_target_node
+                h_next = threshold - predicted_u_current[node_idx]
                 
-        return logits
+                if h_next >= lower_bound:
+                    safe_mask[node_idx] = 1.0
+                    
+            # 4. Critical Safety Check (Hard Override)
+            # If no nodes are safe (empty set), we MUST pick the node that 
+            # maximizes h(x_t+1) to minimize the violation.
+            safe_mask=safe_mask*mask
+            if safe_mask.sum() == 0:
+                best_node = torch.argmax(threshold - predicted_u_current)
+                safe_mask[best_node] = 1.0
+            
+        return safe_mask
     def __init__(self, number_of_nodes):
         
         super().__init__()
@@ -63,11 +53,7 @@ class observation_processing_network(torch.nn.Module):
 
         # 2. Actor-Critic Heads
         # custom_mlp must match the flattened input of MLPAggregation
-        custom_mlp = nn.Sequential(
-            nn.Linear(number_of_nodes, 64),
-            nn.ReLU(),
-            nn.Linear(64, number_of_nodes)
-        )
+        
         self.actor = nn.Linear(self.number_of_nodes*5,1)
         self.critic = nn.Linear(in_features=self.number_of_nodes*3, out_features=1)
 
@@ -92,7 +78,7 @@ class observation_processing_network(torch.nn.Module):
         assert x_combined.shape == torch.Size([50,5])
         with torch.no_grad(): # Use no_grad here so Actor doesn't backprop through GCN
 
-            uncertainty_prediction = unc_net(x_combined, data.edge_index) # [50, 1]
+            uncertainty_prediction = unc_net(data.x, data.edge_index) # [50, 1]
     
     # 5. ENRICH THE STATE: Add the prediction as a 6th feature
     # Now state is [50, 6] -> (Obs + Topology + Prediction)
@@ -131,17 +117,16 @@ class observation_processing_network(torch.nn.Module):
         logits = self.actor(x.flatten())
         #print(logits.shape)
         #print(f"logit shape here is {logits.shape}")
-        logits = self.get_safe_logits(logits,x,edge_index,unc_net)
+       # logits = self.get_safe_logits(logits,x,edge_index,unc_net)
         #print(f"here logits shape are {logits.shape}")
         #print(f"logit shape here is {logits.shape}")
-
+        action_mask=self.get_safe_action_mask(x,edge_index,unc_net,mask)
         # Apply Mask (Safety/Valid actions)
-        mask_tensor = torch.tensor(mask, device=self.device).float()
         #print(mask_tensor.shape)
         #print(f"logits shape before is {logits.shape}")
         #print(f"logits squeeze shape {logits.squeeze(1).shape}")
         
-        masked_logits = logits  *mask_tensor
+        masked_logits = logits  * action_mask
         #print(f"masked logits shape are {masked_logits.shape}")
         # Critic value
         
