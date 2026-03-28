@@ -38,6 +38,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
         self.occupied_targets=0
         self.tot_unc =0
         self.num_nodes = num_nodes
+        
         self.render_mode = 2
         self.render_flag = False
         self.metadata = {
@@ -153,10 +154,8 @@ class GraphEnv(pettingzoo.ParallelEnv):
         self.num_epochs=0
         self.time_spent_on_target = {agent:0 for agent in self.possible_agents}
         self.agent_to_clearing_cleared = {agent:0 for agent in self.possible_agents}
-        self.last_uncertainty = 0
-        self.last_uncertainty_agent = {agent:0 for agent in self.possible_agents}
-
-        self.tot_unc_agent={agent:0 for agent in self.possible_agents}
+        self.moving = {agent:0 for agent in self.possible_agents}
+        self.threshold:int=0
     def select_graph(self, load_param:int, loaded_graphml_name:str, output_name:str="default_name",):
         """
         Docstring for select_graph
@@ -205,12 +204,11 @@ class GraphEnv(pettingzoo.ParallelEnv):
     def reset(self):
         
         #print(f"resetting at {self.num_moves}")
-        self.last_uncertainty=self.tot_unc
         self.tot_unc =0
-        self.last_uncertainty_agent = self.tot_unc_agent
+
         self.num_epochs+=1
         self.episode_num +=1
-
+        
         self.obs_dict = {node:torch.Tensor() for node in range(self.num_nodes)}
 
         ##print("running reset")
@@ -235,8 +233,6 @@ class GraphEnv(pettingzoo.ParallelEnv):
         self.mental_map= {agent:starting_graph.copy() for agent in self.possible_agents}
         #print(self.mental_map["agent_0"].nodes())
         #print(self.graph.nodes())
-        self.tot_unc_agent={agent:0 for agent in self.possible_agents}
-
         for agent in self.possible_agents:   
             ego = nx.ego_graph(self.graph, (self.agent_position[agent]), radius=2)
 
@@ -306,10 +302,11 @@ class GraphEnv(pettingzoo.ParallelEnv):
         # Loop through
 
         for agent in self.agents:
-            self.last_state[agent] = self.agent_position[agent]
-            self.agent_position[agent] = action[agent].item()
-            #print(f"{ self.agent_position[agent]} {agent}")
-            count=0                
+            if self.moving[agent]==0:
+                pass
+                # Add logic for getting an action here.
+            if self.graph.node[self.agent_position[agent]]["uncertainty"]<=self.threshold:
+                print()     
         agent_pos_vals = self.agent_position.values()
         for node_idx in range(self.num_nodes):
             
@@ -388,24 +385,20 @@ class GraphEnv(pettingzoo.ParallelEnv):
             # Old state = New state 
             #unc_on_node = self.graph.nodes[self.agent_position[agent]]["uncertainty"]/100
             self.agent_to_two_recent_unc[agent][1]=self.agent_to_two_recent_unc[agent][0]
-            """if self.graph.nodes[self.agent_position[agent]]["uncertainty"]>0:
+            if self.graph.nodes[self.agent_position[agent]]["uncertainty"]>0:
                 unc_reward =  0.05*(self.num_moves/self.max_moves)
             else:
-                unc_reward= -0.05*((self.num_moves/self.max_moves))"""
+                unc_reward= -0.05*((self.num_moves/self.max_moves))
             
             
-            """if (self.last_state[agent]==self.agent_position[agent]):
+            if (self.last_state[agent]==self.agent_position[agent]):
                 print(f"same position for agent{agent} at num moves {self.num_moves}")
-                same_pos= self.num_moves/self.max_moves"""
+                same_pos= self.num_moves/self.max_moves
         
-            """else:
-                same_pos = -(self.num_moves/self.max_moves)"""
-            long_term=0
-            if self.num_moves==self.max_moves-1 and self.num_epochs!=0:
-                long_term=self.last_uncertainty_agent[agent]-self.tot_unc_agent[agent]
-            #print(long_term)
+            else:
+                same_pos = -(self.num_moves/self.max_moves)
             
-            rewards[agent] = collision + long_term 
+            rewards[agent] = self.agent_to_clearing_cleared[agent]*5 + unc_reward + same_pos
 
             
             #print(f"{agent} {rewards[agent]}")
@@ -417,14 +410,14 @@ class GraphEnv(pettingzoo.ParallelEnv):
             if item==True or item==1:
                 print("true")
         self.num_moves+=1
-        #print(self.num_moves)
+        
         """if self.render_mode == "human":
             self.render()"""
         
         obs = {agent:{"observation":self.mental_map[agent],"action_mask":self.action_mask_to_node[(self.agent_position[agent])]} for agent in self.agents}
 
         self.tot_unc=sum(self.graph.nodes[node]["uncertainty"] for node in range(self.num_nodes))
-        self.tot_unc_agent[agent]+=sum(self.mental_map[agent].nodes[node]["uncertainty"] for node in range(self.num_nodes))
+        print(self.tot_unc)
 
         self.occupied_targets=trg_cnt
         return obs, rewards, self.terminations, self.truncations, infos

@@ -28,7 +28,7 @@ class uncertainty_estimator(Module):
         x= x.to(self.device)
         x=x[:,0]
         move_num = torch.tensor(move_num).expand(self.num_nodes)
-        move_num = move_num.to(self.device)
+        move_num = move_num.to(self.device).float()
         #print(move_num.shape)
         #print(x.shape)
         x = torch.concat((x.unsqueeze(1),move_num.unsqueeze(1)),1)
@@ -53,6 +53,8 @@ class uncertainty_estimator(Module):
 
         #assert target.shape == torch.Size([50,1])
         loss = self.loss_f(prediction, target)
+        #print(loss)
+
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()

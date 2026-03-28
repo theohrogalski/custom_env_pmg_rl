@@ -30,7 +30,7 @@ class trainer():
 
         # Save to a temporary file first, then rename (prevents corruption if job dies mid-save)
         temp_path = f"{path}checkpoint_latest_training_session_two_{n_num}_{ag_num}.tmp"
-        final_path = f"{path}checkpoint_ep_{episode}_{n_num}_{ag_num}_{epoch}.pt"
+        final_path = f"{path}checkpoint_ep_{episode}_{n_num}_{ag_num}_{epoch}_final_9.pt"
         print("saving ckpt")
         torch.save(checkpoint, temp_path)
         os.rename(temp_path, final_path)
@@ -75,7 +75,7 @@ class trainer():
     #--------------------------------------------------------------
 
 
-        plt.savefig(f"step:_{step}_epoch:_{epoch}.png")
+        plt.savefig(f"step:_{step}_epoch:_{epoch}_final_5.png")
         plt.close()
 
 
@@ -150,7 +150,7 @@ class trainer():
         uncertainty_history:list = []
         while env.agents and max_iters>num_iters:
             #print(env.num_moves)
-            if env.num_moves%749 == 0 and env.num_moves !=0:
+            if env.num_moves%env.max_moves == 0 and env.num_moves !=0:
                 self.save_marl_checkpoint(episode=env.num_moves,obs_nets=obs_nets,unc_nets=env.agent_to_net,optimizers=optimizers,epoch=env.num_epochs,ag_num=num_agents,n_num=num_nodes)
                 self.save_diagnostic_plots(step=env.num_moves,agents=env.possible_agents,reward_history=reward_history[agent],epoch=env.num_epochs,uncertainty_history=uncertainty_history)
                 env.reset()
@@ -166,8 +166,8 @@ class trainer():
             # --- PHASE 1: COLLECT ACTIONS ---
             for agent in env.agents:
             # 1. Run the forward pass
-
-                logits, value, x_state, edges = obs_nets[agent](env.mental_map[agent], env.action_mask_to_node[int(agent[6:])],env.agent_to_net[agent], num_moves=env.num_moves)
+                #print(f"agnet pos is {env.agent_position[agent]}")
+                logits, value, x_state, edges = obs_nets[agent](mental_map_nx=env.mental_map[agent], mask=env.action_mask_to_node[int(agent[6:])],unc_net=env.agent_to_net[agent],num_moves=env.num_moves,neighbors=env.action_mask_to_node[env.agent_position[agent]],position=env.agent_position[agent])
                 unc_net = env.agent_to_net[agent]
                 # This call now only handles the GCN logic
                 unc_loss = unc_net.update_estimator(x_state.detach(), edges,env.num_moves)
@@ -179,7 +179,7 @@ class trainer():
                 dist = Categorical(logits=logits)
                 actions[agent] = dist.sample()
                 
-                log_prob[agent] = dist.log_prob(actions[agent])
+                log_prob[agent] = (actions[agent])
                 # Store for Phase 3
                 step_data[agent] = {
                     "log_prob":log_prob,
@@ -197,7 +197,7 @@ class trainer():
             # 1. Prepare Ground Truths (Moved to GPU)
                 reward = torch.tensor([rewards[agent]], device=dev)
 
-                _,next_val,_,_ = obs_nets[agent](env.mental_map[agent], env.action_mask_to_node[int(agent[6:])],env.agent_to_net[agent],num_moves=env.num_moves)
+                _,next_val,_,_ = obs_nets[agent](env.mental_map[agent], env.action_mask_to_node[int(agent[6:])],env.agent_to_net[agent],num_moves=env.num_moves,neighbors=env.action_mask_to_node[env.agent_position[agent]], position =env.agent_position[agent])
                 # 2. Retrieve the stored Log Prob and Value from Phase 1
                 #log_prob = data["log_prob"] #
                 value = data["value"]
@@ -229,8 +229,8 @@ class trainer():
 
 if __name__=="__main__":
     homunculus=trainer()
-    nodes_for_data=[20,50,100]
-    num_agents_for_testing=[1,2,4,15]
+    nodes_for_data=[50]
+    num_agents_for_testing=[4]
     for nn in nodes_for_data:
         for ag in num_agents_for_testing:
             homunculus.train_loop(num_nodes=nn,num_agents=ag)

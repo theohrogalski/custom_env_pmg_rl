@@ -5,7 +5,7 @@ from torch_geometric.utils import from_networkx, get_laplacian, to_dense_adj, ad
 import networkx as nx
 
 class observation_processing_network(torch.nn.Module):
-    def get_safe_action_mask(self,mask, x_state, edge_index, unc_net, threshold=100, eta=0.1,num_moves=0,neighbors=0,position=0):
+    def get_safe_action_mask(self, x_state, edge_index, unc_net, threshold=100, eta=0.1,num_moves=0,neighbors=0,position=0):
         """
     Returns a binary mask [50] where 1.0 = Mathematically Safe, 0.0 = Forbidden.
     """
@@ -133,7 +133,7 @@ class observation_processing_network(torch.nn.Module):
        # logits = self.get_safe_logits(logits,x,edge_index,unc_net)
         #print(f"here logits shape are {logits.shape}")
         #print(f"logit shape here is {logits.shape}")
-        action_mask = self.get_safe_action_mask(x_state=x,edge_index=edge_index,unc_net=unc_net,mask=mask,num_moves=num_moves,neighbors=neighbors,position=position).to(self.device)
+        action_mask = self.get_safe_action_mask(x_state=x,edge_index=edge_index,unc_net=unc_net,num_moves=num_moves,neighbors=neighbors,position=position).to(self.device)
         # Apply Mask (Safety/Valid actions)
         #print(mask_tensor.shape)
         #print(f"logits shape before is {logits.shape}")

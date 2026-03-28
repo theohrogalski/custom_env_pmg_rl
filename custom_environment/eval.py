@@ -28,7 +28,7 @@ class eval_type():
         logger = logging.getLogger(f"log_sit")
         logging.basicConfig(filename=f'log_sit.log', level=logging.INFO)
 
-        nodes_for_data=[20,50,100]
+        nodes_for_data=[100]
         num_agents_for_testing=[1,2,4,15]
         for nodes_num in nodes_for_data:
             for agents_num in num_agents_for_testing:
@@ -56,7 +56,7 @@ class eval_type():
                                 actions[agent] = torch.tensor(env.agent_position[agent])
                             else:
                                 actions[agent]=torch.tensor(random.sample(self.get_legal_actions(env.agent_position[agent],env.action_mask_to_node),1))            
-
+                        
                         else:
                             actions[agent] = torch.tensor(env.agent_position[agent])
                     _, _, _,_, _ = env.step(actions)
@@ -70,9 +70,12 @@ class eval_type():
 
 
     def full_model(self,num_nodes,num_agents):
+        logger = logging.getLogger(f"log_{num_nodes}_{num_agents}")    
+        logging.basicConfig(filename=f'log_{num_nodes}_{num_agents}.log', level=logging.INFO)
+
         env = GraphEnv(num_nodes=num_nodes,num_agents=num_agents)
         "Evaluation for a pre-determined checkpoint for the full algorithm. Uses the self.ckpt as the path for loading models."
-        check_dict  = torch.load(f"./checkpoints/{self.ckpt}.pt")
+        check_dict  = torch.load(f"./checkpoints/checkpoint_ep_749_50_4_99_final_3.pt")
         
         obs_nets = check_dict["obs_state_dict"]
         unc_nets = check_dict["unc_state_dict"]
@@ -93,22 +96,27 @@ class eval_type():
             model.to(self.device)
         actions={}
         while env.agents and num_iters<max_iters:
+            time_start=time()
             if env.num_moves%750==0 and env.num_moves!=0:
                 env.reset()
                 total_uncertainty_ever+=sum(uncertainty_history)
                 uncertainty_history=[]
                 num_iters+=1
-                print(f"Num iters for sit {num_iters}/100")
+                #print(f"Num iters for sit {num_iters}/20")
             for agent in env.agents:
-                logits, value, x_state, edges = obs_net[agent](env.mental_map[agent], env.action_mask_to_node[int(agent[6:])],agent_to_net[agent], num_moves=env.num_moves)
+                logits, value, x_state, edges = obs_net[agent](env.mental_map[agent], env.action_mask_to_node[int(agent[6:])],agent_to_net[agent], num_moves=env.num_moves,neighbors=env.action_mask_to_node[env.agent_position[agent]])
+               # print(f"logits for agent {agent} are {logits}")
+               # print(f"pos for agent {agent} are {env.agent_position[agent]}")
 
                 dist = Categorical(logits=logits)
                 actions[agent] = dist.sample()
 
             _,_,_,_,_ = env.step(actions)
             uncertainty_history.append(env.tot_unc)
-        print(f"Total uncertainty for {self.ckpt} is {total_uncertainty_ever}")
-
+        logger.info(f"{num_agents}_{num_nodes}")
+        logger.info(total_uncertainty_ever)
+        logger.info(env.longest_time_without_a_visit)
+        logger.info(time()-time_start)
         return total_uncertainty_ever
     def partial_model(self,data):
         statistics=[]
@@ -216,7 +224,13 @@ def automatic_training_loop(eto):
 
     #eto.sit_on_nodes()
     #eto.grazing()
-    eto.full_model(num_agents=1,num_nodes=20)
+    nodes_for_data=[50]
+    num_agents_for_testing=[4]
+    for nn in nodes_for_data:
+        for ag in num_agents_for_testing:
+            print(f"nn is {nn}")
+            print(f"ag is {ag}")
+            eto.full_model(num_agents=ag,num_nodes=nn)
 
 
 if __name__=="__main__":
