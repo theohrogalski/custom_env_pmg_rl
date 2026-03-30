@@ -17,7 +17,7 @@ class uncertainty_estimator(Module):
         self.num_nodes=num_nodes
         self.max_moves=750
             # optional second layer for better graph depth                  
-        self.lin = torch.nn.Linear(2,1)
+        self.lin = torch.nn.utils.spectral_norm(torch.nn.Linear(2,1))
         self.loss_data=[]
 
         self.optimizer = torch.optim.Adam(self.parameters(),lr=1e-3)
