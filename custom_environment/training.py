@@ -3,7 +3,7 @@ import torch
 import os
 from torch.nn.modules.container import ParameterList
 from torch.distributions import Categorical
-from model_two import observation_processing_network
+
 import logging
 from math import trunc
 import numpy as np
@@ -12,8 +12,8 @@ from matplotlib import pyplot as plt
 from torch.nn.functional import mse_loss
 from gymnasium.wrappers import RecordEpisodeStatistics
 class trainer():
-    def __init__(self):
-        pass
+    def __init__(self,model):
+        self.model = model
     def save_marl_checkpoint(self,episode, obs_nets, unc_nets, optimizers,epoch, path="./checkpoints/",ag_num=0, n_num=0):
         # Create directory if it doesn't exist
         if not os.path.exists(path):
@@ -29,8 +29,8 @@ class trainer():
         }
 
         # Save to a temporary file first, then rename (prevents corruption if job dies mid-save)
-        temp_path = f"{path}checkpoint_latest_training_session_two_{n_num}_{ag_num}.tmp"
-        final_path = f"{path}checkpoint_ep_{episode}_{n_num}_{ag_num}_{epoch}_final_9.pt"
+        temp_path = f"{path}_ckpt_{episode}_{n_num}_{ag_num}_{epoch}_{self.model}.tmp"
+        final_path = f"{path}_ckpt_{episode}_{n_num}_{ag_num}_{epoch}_{self.model}.pt"
         print("saving ckpt")
         torch.save(checkpoint, temp_path)
         os.rename(temp_path, final_path)
@@ -50,7 +50,6 @@ class trainer():
         Saves a diagnostic figure to the /results folder.
         """
         
-        # Use 'Agg' backend for headless cluster environments
         import matplotlib
         matplotlib.use('Agg') 
         
@@ -63,7 +62,6 @@ class trainer():
         ax1.set_ylabel("Uncertainty")
         ax1.plot(uncertainty_history)   
         
-    #--------------------------------------------------------------
         i=0 
         for axes in obj_list:
             
@@ -127,7 +125,7 @@ class trainer():
             dev="cuda"
         else:
             dev="cpu"
-        obs_nets:dict = {agent:observation_processing_network(env.graph.number_of_nodes())for agent in env.possible_agents}
+        obs_nets:dict = {agent:self.model(env.graph.number_of_nodes())for agent in env.possible_agents}
         for nets in obs_nets.values():
             # #print("a")
             nets.to(dev)
@@ -145,14 +143,14 @@ class trainer():
         critic_loss_dict = {}
         # Main Episode Loop
         reward_history:dict = {agent:[] for agent in env.possible_agents}
-        max_iters=1_00
+        max_iters=25
         num_iters=0
         uncertainty_history:list = []
         while env.agents and max_iters>num_iters:
             #print(env.num_moves)
             if env.num_moves%env.max_moves == 0 and env.num_moves !=0:
                 self.save_marl_checkpoint(episode=env.num_moves,obs_nets=obs_nets,unc_nets=env.agent_to_net,optimizers=optimizers,epoch=env.num_epochs,ag_num=num_agents,n_num=num_nodes)
-                self.save_diagnostic_plots(step=env.num_moves,agents=env.possible_agents,reward_history=reward_history[agent],epoch=env.num_epochs,uncertainty_history=uncertainty_history)
+                #self.save_diagnostic_plots(step=env.num_moves,agents=env.possible_agents,reward_history=reward_history[agent],epoch=env.num_epochs,uncertainty_history=uncertainty_history)
                 env.reset()
                 uncertainty_history = []
                 reward_history:dict = {agent:[] for agent in env.possible_agents}
@@ -170,7 +168,7 @@ class trainer():
                 logits, value, x_state, edges = obs_nets[agent](mental_map_nx=env.mental_map[agent], mask=env.action_mask_to_node[int(agent[6:])],unc_net=env.agent_to_net[agent],num_moves=env.num_moves,neighbors=env.action_mask_to_node[env.agent_position[agent]],position=env.agent_position[agent])
                 unc_net = env.agent_to_net[agent]
                 # This call now only handles the GCN logic
-                unc_loss = unc_net.update_estimator(x_state.detach(), edges,env.num_moves)
+                unc_loss = unc_net.update_estimator(x_state.detach(), edges,move_num=env.num_moves)
                 #logger.info(f"unc_loss @ {env.num_moves} is {unc_loss}")
                 #print(f"logits are {logits}")
                 #print(logits.shape)

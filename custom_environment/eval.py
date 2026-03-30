@@ -5,7 +5,7 @@ from matplotlib import pyplot as plt
 import logging
 import networkx as nx
 from time import time
-from model_two import observation_processing_network
+from custom_environment.models_full_model_d import observation_processing_network
 #agents, optimizers = torch.load("")
 import itertools#test_env = GraphEnv()
 from torch.distributions import Categorical
@@ -75,7 +75,7 @@ class eval_type():
 
         env = GraphEnv(num_nodes=num_nodes,num_agents=num_agents)
         "Evaluation for a pre-determined checkpoint for the full algorithm. Uses the self.ckpt as the path for loading models."
-        check_dict  = torch.load(f"./checkpoints/checkpoint_ep_749_50_4_99_final_3.pt")
+        check_dict  = torch.load(f"./checkpoints/checkpoint_ep_750_50_4_99_final_9.pt")
         
         obs_nets = check_dict["obs_state_dict"]
         unc_nets = check_dict["unc_state_dict"]
@@ -102,9 +102,10 @@ class eval_type():
                 total_uncertainty_ever+=sum(uncertainty_history)
                 uncertainty_history=[]
                 num_iters+=1
+                print(f"num iters: {num_iters}")
                 #print(f"Num iters for sit {num_iters}/20")
             for agent in env.agents:
-                logits, value, x_state, edges = obs_net[agent](env.mental_map[agent], env.action_mask_to_node[int(agent[6:])],agent_to_net[agent], num_moves=env.num_moves,neighbors=env.action_mask_to_node[env.agent_position[agent]])
+                logits, value, x_state, edges = obs_net[agent](env.mental_map[agent], env.action_mask_to_node[int(agent[6:])],agent_to_net[agent], num_moves=env.num_moves,neighbors=env.action_mask_to_node[env.agent_position[agent]],position=env.agent_position[agent])
                # print(f"logits for agent {agent} are {logits}")
                # print(f"pos for agent {agent} are {env.agent_position[agent]}")
 
@@ -234,5 +235,5 @@ def automatic_training_loop(eto):
 
 
 if __name__=="__main__":
-    eto = eval_type("checkpoint_ep_749_20_1_730")
+    eto = eval_type("checkpoint_ep_750_50_4_99_final_9")
     automatic_training_loop(eto)

@@ -81,7 +81,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
         self._cumulative_rewards = {agent:0 for agent in self.agents}
         self.num_moves = 0
         self.obs_dict = {node:torch.Tensor() for node in range(self.num_nodes)}
-        self.agent_to_net:dict = {agent:ue(5,out_dim=1,hidden_dim=5,num_nodes=self.num_nodes) for agent in self.possible_agents}
+        self.agent_to_net:dict = {agent:ue(5,out_dim=1,hidden_dim=5,num_nodes=self.num_nodes,agent_name=agent) for agent in self.possible_agents}
         for net in self.agent_to_net.values():
 
             net.to(self.device)
@@ -98,7 +98,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
         #self.per_agent_covered = {agent:set() for agent in self.possible_agents}
         self.terminations = {agent:False for agent in self.agents}
 
-        self.max_moves=750
+        self.max_moves=1_000
         # Linearly Decaying Parameters
         self.d0= 1
         self.d_k=0
@@ -134,6 +134,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
         self.buffer_length=10
         self.node_history = {node:[] for node in self.graph.nodes}
         #print(self.graph.nodes)
+        self.max_buffer=10
         self.neighbors_iter = {node:list(self.graph.neighbors(node)) for node in self.graph.nodes}
         self.action_mask_to_node = {node:[0]*(num_nodes) for node in self.graph}
         """for node in self.graph.nodes:
@@ -154,9 +155,10 @@ class GraphEnv(pettingzoo.ParallelEnv):
         self.time_spent_on_target = {agent:0 for agent in self.possible_agents}
         self.agent_to_clearing_cleared = {agent:0 for agent in self.possible_agents}
         self.last_uncertainty = 0
-        self.last_uncertainty_agent = {agent:0 for agent in self.possible_agents}
+        self.last_uncertainty_agent = {agent:[] for agent in self.possible_agents}
 
         self.tot_unc_agent={agent:0 for agent in self.possible_agents}
+        self.avg_over_last_uncertainties={agent:0 for agent in self.possible_agents}
     def select_graph(self, load_param:int, loaded_graphml_name:str, output_name:str="default_name",):
         """
         Docstring for select_graph
@@ -206,8 +208,14 @@ class GraphEnv(pettingzoo.ParallelEnv):
         
         #print(f"resetting at {self.num_moves}")
         self.last_uncertainty=self.tot_unc
-        self.tot_unc =0
-        self.last_uncertainty_agent = self.tot_unc_agent
+        self.tot_unc = 0
+        for agent in self.agents:
+            if len(self.last_uncertainty_agent[agent])<self.max_buffer:
+                self.last_uncertainty_agent[agent].append(self.tot_unc_agent[agent])
+            else:
+                self.last_uncertainty_agent[agent].pop(0)
+                self.last_uncertainty_agent[agent].append(self.tot_unc_agent[agent])
+            self.avg_over_last_uncertainties[agent]=sum(self.last_uncertainty_agent[agent])/len(self.last_uncertainty_agent[agent])
         self.num_epochs+=1
         self.episode_num +=1
 
@@ -402,9 +410,9 @@ class GraphEnv(pettingzoo.ParallelEnv):
                 same_pos = -(self.num_moves/self.max_moves)"""
             long_term=0
             if self.num_moves==self.max_moves-1 and self.num_epochs!=0:
-                long_term=self.last_uncertainty_agent[agent]-self.tot_unc_agent[agent]
+                long_term=(self.avg_over_last_uncertainties[agent]-self.tot_unc_agent[agent])*0.05
             #print(long_term)
-            
+
             rewards[agent] = collision + long_term 
 
             
