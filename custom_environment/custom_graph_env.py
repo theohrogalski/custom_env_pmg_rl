@@ -33,7 +33,7 @@ import time
 ###print(plt.get_backend())
 
 class GraphEnv(pettingzoo.ParallelEnv):
-    def __init__(self, num_nodes=100, num_agents=15, seed=1,render_mode="human", graph_selection=0):
+    def __init__(self, num_nodes=100, num_agents=15, seed=1,render_mode="human", graph_selection=0,max_moves=1):
         self.seed=seed
         self.occupied_targets=0
         self.tot_unc =0
@@ -97,8 +97,8 @@ class GraphEnv(pettingzoo.ParallelEnv):
         self.personal_graph = {agent:None for agent in self.possible_agents}
         #self.per_agent_covered = {agent:set() for agent in self.possible_agents}
         self.terminations = {agent:False for agent in self.agents}
-
-        self.max_moves=1_000
+        print(max_moves)
+        self.max_moves=max_moves
         # Linearly Decaying Parameters
         self.d0= 1
         self.d_k=0
@@ -422,8 +422,8 @@ class GraphEnv(pettingzoo.ParallelEnv):
             agent: self.num_moves >= self.max_moves for agent in self.agents
             }
         for item in self.truncations.values():
-            if item==True or item==1:
-                print("true")
+            if item==True:
+                print("terminations reached, error!")
         self.num_moves+=1
         #print(self.num_moves)
         """if self.render_mode == "human":

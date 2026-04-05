@@ -12,9 +12,12 @@ from matplotlib import pyplot as plt
 from torch.nn.functional import mse_loss
 from gymnasium.wrappers import RecordEpisodeStatistics
 class trainer():
-    def __init__(self,model):
+    def __init__(self,model,max_iters,max_moves=1):
+        self.max_iters=max_iters
+        self.max_moves=max_moves
         self.model = model
-    def save_marl_checkpoint(self,episode, obs_nets, unc_nets, optimizers,epoch, path="./checkpoints/",ag_num=0, n_num=0):
+        
+    def save_marl_checkpoint(self,episode, obs_nets, unc_nets, optimizers,epoch, path="./checkpoints/",ag_num=0, n_num=0, random_seed=1):
         # Create directory if it doesn't exist
         if not os.path.exists(path):
             os.makedirs(path)
@@ -29,9 +32,9 @@ class trainer():
         }
 
         # Save to a temporary file first, then rename (prevents corruption if job dies mid-save)
-        temp_path = f"{path}_ckpt_{episode}_{n_num}_{ag_num}_{epoch}_{self.model}.tmp"
-        final_path = f"{path}_ckpt_{episode}_{n_num}_{ag_num}_{epoch}_{self.model}.pt"
-        print("saving ckpt")
+        temp_path = f"{path}_ckpoint_{episode}_{n_num}_{ag_num}_{epoch}_{self.model}_{random_seed}.tmp"
+        final_path = f"{path}_ckpoint_{episode}_{n_num}_{ag_num}_{epoch}_{self.model}_{random_seed}.pt"
+        print(f"saving ckpt {path}_ckpoint_{episode}_{n_num}_{ag_num}_{epoch}_{self.model}_{random_seed}")
         torch.save(checkpoint, temp_path)
         os.rename(temp_path, final_path)
         
@@ -45,7 +48,7 @@ class trainer():
     logger.info("num_moves, agent, total_loss, action, uncertainty, value, next_val, occ_nodes, unc_loss")
 
     cur_length_list = []
-    def save_diagnostic_plots(self,step, agents,reward_history,epoch,uncertainty_history):
+    def diagnostic_plots(self,step, agents,reward_history,epoch,uncertainty_history):
         """
         Saves a diagnostic figure to the /results folder.
         """
@@ -113,12 +116,13 @@ class trainer():
         assert total_loss.shape == torch.Size([1])
         return total_loss
 
-    def train_loop(self,num_nodes,num_agents):
+    def train_loop(self,num_nodes,num_agents,random_seed):
         import logging
+        torch.manual_seed(random_seed)
         logger = logging.getLogger(f"fm_{num_nodes}_{num_agents}")
         logging.basicConfig(filename=f"fm_{num_nodes}_{num_agents}", level=logging.INFO)
 
-        env = GraphEnv(num_nodes=num_nodes,num_agents=num_agents)
+        env = GraphEnv(num_nodes=num_nodes,num_agents=num_agents,max_moves=self.max_moves)
         ##print(f" here3 {env.graph.nodes()}")
         ##print(env.agent_position
         if torch.cuda.is_available():
@@ -143,14 +147,14 @@ class trainer():
         critic_loss_dict = {}
         # Main Episode Loop
         reward_history:dict = {agent:[] for agent in env.possible_agents}
-        max_iters=25
+        max_iters=self.max_iters
         num_iters=0
         uncertainty_history:list = []
         while env.agents and max_iters>num_iters:
             #print(env.num_moves)
             if env.num_moves%env.max_moves == 0 and env.num_moves !=0:
-                self.save_marl_checkpoint(episode=env.num_moves,obs_nets=obs_nets,unc_nets=env.agent_to_net,optimizers=optimizers,epoch=env.num_epochs,ag_num=num_agents,n_num=num_nodes)
-                #self.save_diagnostic_plots(step=env.num_moves,agents=env.possible_agents,reward_history=reward_history[agent],epoch=env.num_epochs,uncertainty_history=uncertainty_history)
+                self.save_marl_checkpoint(episode=env.num_moves,obs_nets=obs_nets,unc_nets=env.agent_to_net,optimizers=optimizers,epoch=env.num_epochs,ag_num=num_agents,n_num=num_nodes,random_seed=random_seed)
+                self.save_diagnostic_plots(step=env.num_moves,agents=env.possible_agents,reward_history=reward_history[agent],epoch=env.num_epochs,uncertainty_history=uncertainty_history)
                 env.reset()
                 uncertainty_history = []
                 reward_history:dict = {agent:[] for agent in env.possible_agents}
