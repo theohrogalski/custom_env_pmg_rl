@@ -1,5 +1,5 @@
 import torch
-from custom_graph_env import GraphEnv
+from decentralized_graph_env import GraphEnv
 import random
 from matplotlib import pyplot as plt
 from models_extra_attention_d import models_extra_attention
@@ -19,11 +19,11 @@ from datetime import datetime
 from torch.distributions import Categorical
 
 from neural_model import uncertainty_estimator as ue 
-class eval_type():
+class algorithm_evaluator():
     def __init__(self):
-        self.ckpt= ckpt
+        #self.ckpt= ckpt
         self.rand=random.randint(0,99999)
-        self.model_list = [models_no_dcbf,models_no_dcbsf_no_state_est,models_full_model,models_no_state_est]
+        self.model_list = [models_extra_attention,models_no_dcbf,models_no_dcbsf_no_state_est,models_full_model,models_no_state_est]
         
         self.device= "cuda"
     def sit_on_nodes(self):
@@ -74,6 +74,7 @@ class eval_type():
         log_dir = "logs/evaluation"
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
+            
         log_filename = f"{log_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
         log_path = os.path.join(log_dir, log_filename)
         
@@ -83,11 +84,12 @@ class eval_type():
             format='%(asctime)s - %(levelname)s - %(message)s',
             handlers=[
                 logging.FileHandler(log_path),  # Writes to the subfolder
-                logging.StreamHandler()         # Also prints to console
                  ]
             )
 
         logging.info(f"Beginning eval. loop for seed {seed},max. iters:{max_iters}, num nodes: {num_nodes}, num agents: {num_agents}")    
+        logging.info("num_moves, agent, reward, action, uncertainty, occ_nodes")
+
         env = GraphEnv(num_nodes=num_nodes,num_agents=num_agents,max_moves=500)
         "Evaluation for a pre-determined checkpoint for the full algorithm. Uses the self.ckpt as the path for loading models."
         check_dict  = torch.load(f"./checkpoints/{ckpt}.pt")
@@ -100,8 +102,11 @@ class eval_type():
 
         uncertainty_history = []
         num_iters=0
+        
+        print(f"model is {model}")
+        print(f"checkpoint is {ckpt}")
 
-        print(f"model is{model}")
+
         total_uncertainty_ever = 0
         obs_net:dict = {agent:model(env.graph.number_of_nodes()) for agent in env.possible_agents}
         for agent,model in obs_net.items():
@@ -129,13 +134,15 @@ class eval_type():
 
                 dist = Categorical(logits=logits)
                 actions[agent] = dist.sample()
+                logging.info(f"{env.num_moves}, {agent}, {env.rewards[agent]}  {actions[agent].item()}, {env.tot_unc}, {env.occupied_targets}")
 
             _,_,_,_,_ = env.step(actions)
             uncertainty_history.append(env.tot_unc)
         logging.info(f"{num_agents}_{num_nodes}_{log_name}_{max_iters}_iters")
         logging.info(total_uncertainty_ever)
         logging.info(env.longest_time_without_a_visit)
-        logging.info(time()-time_start)
+        logging.info(time()-time_start)               
+
         return total_uncertainty_ever
     def partial_model(self,data):
         statistics=[]
@@ -175,11 +182,12 @@ class eval_type():
                 logger.info(env.longest_time_without_a_visit)
                 logger.info(time()-time_start)
     def grazing(self):
-        logger = logging.getLogger(f"log_grazing")    
-        logging.basicConfig(filename=f'log_grazing.log', level=logging.INFO)
-
-        nodes_for_data=[20,50,100]
-        num_agents_for_testing=[1,2,4,15]
+        logger = logging.getLogger(f"log_grazing") 
+        starting_time=datetime.now().strftime('%H:%M:%S')   
+        logging.basicConfig(filename=f'log_grazing_{starting_time}.log', level=logging.INFO)
+        logging.info(f"Starting Logging at {starting_time}")
+        nodes_for_data=[50]
+        num_agents_for_testing=[4]
         
         for nodes_num in nodes_for_data:
             for agents_num in num_agents_for_testing:
@@ -192,7 +200,7 @@ class eval_type():
                 num_iters=0
                 total_uncertainty_ever=0
                 while env.agents and num_iters<max_iters:
-                    if env.num_moves%750==0 and env.num_moves!=0:
+                    if env.num_moves%500==0 and env.num_moves!=0:
                         #plt.plot(uncertainty_history)
                         total_uncertainty_ever+=sum(uncertainty_history)
                         #plt.set_title("uncertainty_history_random")
@@ -238,7 +246,7 @@ class eval_type():
                 logger.info(env.longest_time_without_a_visit)
                 logger.info(time()-time_start)
 #eto : eval type object
-def automatic_training_loop(eto):
+def automatic_evaluation_for_grazing(eto):
     #eto.random()
 
     #eto.sit_on_nodes()
@@ -249,33 +257,40 @@ def automatic_training_loop(eto):
         for ag in num_agents_for_testing:
             print(f"nn is {nn}")
             print(f"ag is {ag}")
-            eto.full_model(num_agents=ag,num_nodes=nn)
+            eto.grazing(num_agents=ag,num_nodes=nn)
 
-
+"""if __name__=="__main__":
+    eval=algorithm_evaluator()
+    eval.grazing()"""
 if __name__=="__main__":
-    checkpoint_list_no_seed = ["_ckpoint_500_50_4_0_<class 'models_no_dcbf_d.models_no_dcbf'>_","_ckpoint_500_50_4_24_<class 'models_full_model_d.models_full_model'>_","_ckpoint_500_50_4_24_<class 'models_no_state_estimation.models_no_state_est'>_","_ckpoint_500_50_4_24_<class 'models_no_state_estimation.models_no_state_est'>_","_ckpoint_500_50_4_24_<class 'models_no_dcbf_no_state_estimation_d.models_no_dcbf_no_state_est'>_"]
+    checkpoint_list_no_seed = ["_ckpoint_500_50_4_99_<class 'models_extra_attention_d.models_extra_attention'>_","_ckpoint_500_50_4_99_<class 'models_no_dcbf_d.models_no_dcbf'>_","_ckpoint_500_50_4_99_<class 'models_full_model_d.models_full_model'>_","_ckpoint_500_50_4_99_<class 'models_no_state_estimation.models_no_state_est'>_","_ckpoint_500_50_4_99_<class 'models_no_dcbsf_no_state_estimation_d.models_no_dcbf_no_state_est'>_"]
+    
+    second_run = ["_ckpoint_500_50_4_99_<class 'models_no_dcbsf_no_state_estimation_d.models_no_dcbf_no_state_est'>_"]
+    evals=[]
     random_seed_list = ["103","878","422"]
+    
+    
+    #ckpt_list=["saving ckpt ./checkpoints/_ckpoint_500_50_4_99_<class 'models_full_model_d.models_full_model'>_422","saving ckpt ./checkpoints/_ckpoint_500_50_4_99_<class 'models_full_model_d.models_full_model'>_"]
+    
+    third=["_ckpoint_dense_500_final_50_4_99_<class 'models_full_model_d.models_full_model'>_"]
     ckpt_list=[]
     model_list = [models_no_dcbf,models_no_dcbsf_no_state_est,models_full_model,models_no_state_est]
-    for ckpt in checkpoint_list_no_seed:
+    for ckpt in third:
         for rs in random_seed_list:
             assert type(rs)==type("abc")
             assert type(ckpt)==type("abc")
-
+            
             ckpt_list.append(ckpt+rs)
-    assert len(ckpt_list)==len(checkpoint_list_no_seed)*len(random_seed_list)
     #print(ckpt_list)
-    eval=eval_type()
+
+    eval=algorithm_evaluator()
+    
 
     for ckpt in ckpt_list:
         seed=ckpt[-4:-1]
         for model in eval.model_list:
-
-            print(f"model name is {model.__name__}")
             if model.__name__ in ckpt:
-                print(ckpt)
-                print(model.__name__)
-                model_class=model 
-                print(model_class)
-                break
-        eval.full_model(num_nodes=50,num_agents=4,ckpt=ckpt,model=model_class,log_name=f"{model_class.__name__}",max_iters=25,seed=seed)
+                print(f"{model.__name__} --- {ckpt}")
+                model_class=model
+   
+        eval.full_model(num_nodes=50,num_agents=4,ckpt=ckpt,model=model_class,log_name=f"Final_Evals",max_iters=20,seed=seed)

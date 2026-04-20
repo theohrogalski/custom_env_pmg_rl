@@ -1,9 +1,11 @@
-from custom_graph_env import GraphEnv
+from decentralized_graph_env import GraphEnv
 import torch
 import os
+from models_full_model_d import models_full_model
+
 from torch.nn.modules.container import ParameterList
 from torch.distributions import Categorical
-
+from models_no_collision import models_no_collision
 import logging
 from math import trunc
 import numpy as np
@@ -32,8 +34,8 @@ class trainer():
         }
 
         # Save to a temporary file first, then rename (prevents corruption if job dies mid-save)
-        temp_path = f"{path}_ckpoint_{episode}_{n_num}_{ag_num}_{epoch}_{self.model}_{random_seed}.tmp"
-        final_path = f"{path}_ckpoint_{episode}_{n_num}_{ag_num}_{epoch}_{self.model}_{random_seed}.pt"
+        temp_path = f"{path}_ckpoint_dense_{episode}_final_{n_num}_{ag_num}_{epoch}_{self.model}_{random_seed}.tmp"
+        final_path = f"{path}_ckpoint_dense_{episode}_final_{n_num}_{ag_num}_{epoch}_{self.model}_{random_seed}.pt"
         print(f"saving ckpt {path}_ckpoint_{episode}_{n_num}_{ag_num}_{epoch}_{self.model}_{random_seed}")
         torch.save(checkpoint, temp_path)
         os.rename(temp_path, final_path)
@@ -42,10 +44,10 @@ class trainer():
         torch.save(checkpoint, f"{path}latest.pt")
         #print(f"--- Checkpoint saved at Episode {episode} ---")
     logger = logging.getLogger("logger_train")
-    logging.basicConfig(filename='debug_8.log', level=logging.INFO)
+    logging.basicConfig(filename='Training_Data_Megafile.log', level=logging.INFO)
     #print("logger created")
     logger.info("------ Logger Started ------")
-    logger.info("num_moves, agent, total_loss, action, uncertainty, value, next_val, occ_nodes, unc_loss")
+    logger.info("num_moves, agent, reward, total_loss, action, uncertainty, value, next_val, occ_nodes, unc_loss")
 
     cur_length_list = []
     def diagnostic_plots(self,step, agents,reward_history,epoch,uncertainty_history):
@@ -154,12 +156,13 @@ class trainer():
             #print(env.num_moves)
             if env.num_moves%env.max_moves == 0 and env.num_moves !=0:
                 self.save_marl_checkpoint(episode=env.num_moves,obs_nets=obs_nets,unc_nets=env.agent_to_net,optimizers=optimizers,epoch=env.num_epochs,ag_num=num_agents,n_num=num_nodes,random_seed=random_seed)
-                self.save_diagnostic_plots(step=env.num_moves,agents=env.possible_agents,reward_history=reward_history[agent],epoch=env.num_epochs,uncertainty_history=uncertainty_history)
+                #self.diagnostic_plots(step=env.num_moves,agents=env.possible_agents,reward_history=reward_history[agent],epoch=env.num_epochs,uncertainty_history=uncertainty_history)
                 env.reset()
+                
                 uncertainty_history = []
                 reward_history:dict = {agent:[] for agent in env.possible_agents}
                 num_iters+=1
-
+                logger.info(f"Iteration Changing to {num_iters}")
 
             actions={}
             step_data={}
@@ -213,12 +216,13 @@ class trainer():
                 # 3. CALCULATE THE COMBINED LOSS
                 # This function (compute_ac_loss) combines Actor and Critic math
                 #   log_prob=torch.max(log_prob)
+                # print(reward)
                 total_loss = self.compute_ac_loss(log_prob[agent], value, reward, next_val, done)
 
                 # 4. PERFORM THE UPDATE
                 # This updates BOTH the Actor and Critic weights simultaneously
                 optimizers[agent].zero_grad()
-                logger.info(f"{env.num_moves}, {agent}, {int(total_loss.item())}, {actions[agent].item()}, {env.tot_unc}, {int(value.item())}, {int(next_val.item())}, {env.occupied_targets}, {int(unc_loss_dict[agent])}")
+                logger.info(f"{env.num_moves}, {agent}, {reward} ,{int(total_loss.item())}, {actions[agent].item()}, {env.tot_unc}, {int(value.item())}, {int(next_val.item())}, {env.occupied_targets}, {int(unc_loss_dict[agent])}")
                 total_loss.backward()
                 optimizers[agent].step()
                 
@@ -230,9 +234,11 @@ class trainer():
 
 
 if __name__=="__main__":
-    homunculus=trainer()
+    homunculus=trainer(max_iters=100,model=models_no_collision,max_moves=500)
     nodes_for_data=[50]
     num_agents_for_testing=[4]
     for nn in nodes_for_data:
         for ag in num_agents_for_testing:
-            homunculus.train_loop(num_nodes=nn,num_agents=ag)
+            for random_seed in [103,878,422]:
+
+                homunculus.train_loop(num_nodes=nn,num_agents=ag,random_seed=random_seed)

@@ -33,7 +33,7 @@ import time
 ###print(plt.get_backend())
 
 class GraphEnv(pettingzoo.ParallelEnv):
-    def __init__(self, num_nodes=100, num_agents=15, seed=1,render_mode="human", graph_selection=0,max_moves=1):
+    def __init__(self, num_nodes=100, num_agents=15, seed=1,render_mode="human", graph_selection=0,max_moves=500):
         self.seed=seed
         self.occupied_targets=0
         self.tot_unc =0
@@ -62,7 +62,6 @@ class GraphEnv(pettingzoo.ParallelEnv):
         # 2. Define your type conversion (e.g., str -> int)
         # We create a mapping: {old_id: new_id}
         mapping = {node: int(node) for node in self.graph.nodes()}
-        
         # 3. Modify the graph in-place
         # copy=False ensures the original G is modified
         nx.relabel_nodes(self.graph, mapping, copy=False)
@@ -70,6 +69,8 @@ class GraphEnv(pettingzoo.ParallelEnv):
         """for i in self.graph.nodes:
             ##print(self.graph.nodes[i]["uncertainty"]) """
         self.possible_agents = [f"agent_{k}" for k in range(num_agents)]
+        self.momentum={agent:0 for agent in self.possible_agents}
+
         self.total_map_observation = {agent:("") for agent in self.possible_agents}
         self.agent_position={agent:0 for agent in self.possible_agents}
         self.agent_name_mapping = dict(
@@ -205,7 +206,8 @@ class GraphEnv(pettingzoo.ParallelEnv):
         ##print("got here")
   
     def reset(self):
-        
+        for agent in self.agents:
+            self.momentum[agent]=0
         #print(f"resetting at {self.num_moves}")
         self.last_uncertainty=self.tot_unc
         self.tot_unc = 0
@@ -410,10 +412,13 @@ class GraphEnv(pettingzoo.ParallelEnv):
                 same_pos = -(self.num_moves/self.max_moves)"""
             long_term=0
             if self.num_moves==self.max_moves-1 and self.num_epochs!=0:
-                long_term=(self.avg_over_last_uncertainties[agent]-self.tot_unc_agent[agent])*0.05
+                long_term=(self.avg_over_last_uncertainties[agent]-self.tot_unc_agent[agent])
             #print(long_term)
-
-            rewards[agent] = collision + long_term 
+            if self.graph.nodes[self.agent_position[agent]]["uncertainty"]==1 and self.graph.nodes[self.agent_position[agent]]["uncertainty"]>0:
+                self.momentum[agent]+=1
+            else:
+                self.momentum[agent]-=1
+            rewards[agent] = collision*0.1 + long_term*0.05 + self.momentum[agent]*0.05
 
             
             #print(f"{agent} {rewards[agent]}")
