@@ -34,8 +34,8 @@ class trainer():
         }
 
         # Save to a temporary file first, then rename (prevents corruption if job dies mid-save)
-        temp_path = f"{path}_ckpoint_dense_{episode}_final_{n_num}_{ag_num}_{epoch}_{self.model}_{random_seed}.tmp"
-        final_path = f"{path}_ckpoint_dense_{episode}_final_{n_num}_{ag_num}_{epoch}_{self.model}_{random_seed}.pt"
+        temp_path = f"{path}ckpoint_dense_{episode}_final_{n_num}_{ag_num}_{epoch}_{self.model}_{random_seed}.tmp"
+        final_path = f"{path}ckpoint_dense_{episode}_final_{n_num}_{ag_num}_{epoch}_{self.model}_{random_seed}.pt"
         print(f"saving ckpt {path}_ckpoint_{episode}_{n_num}_{ag_num}_{epoch}_{self.model}_{random_seed}")
         torch.save(checkpoint, temp_path)
         os.rename(temp_path, final_path)
@@ -43,11 +43,7 @@ class trainer():
         # Also keep a 'latest' pointer for easy reloading
         torch.save(checkpoint, f"{path}latest.pt")
         #print(f"--- Checkpoint saved at Episode {episode} ---")
-    logger = logging.getLogger("logger_train")
-    logging.basicConfig(filename='Training_Data_Megafile.log', level=logging.INFO)
-    #print("logger created")
-    logger.info("------ Logger Started ------")
-    logger.info("num_moves, agent, reward, total_loss, action, uncertainty, value, next_val, occ_nodes, unc_loss")
+    
 
     cur_length_list = []
     def diagnostic_plots(self,step, agents,reward_history,epoch,uncertainty_history):
@@ -121,9 +117,11 @@ class trainer():
     def train_loop(self,num_nodes,num_agents,random_seed):
         import logging
         torch.manual_seed(random_seed)
-        logger = logging.getLogger(f"fm_{num_nodes}_{num_agents}")
-        logging.basicConfig(filename=f"fm_{num_nodes}_{num_agents}", level=logging.INFO)
-
+        logger = logging.getLogger("logger_train")
+        logging.basicConfig(filename='training_run.log', level=logging.INFO)
+    #print("logger created")
+        logger.info("------ Logger Started ------")
+        logger.info("num_moves, agent, reward, total_loss, action, uncertainty, value, next_val, occ_nodes, unc_loss")
         env = GraphEnv(num_nodes=num_nodes,num_agents=num_agents,max_moves=self.max_moves)
         ##print(f" here3 {env.graph.nodes()}")
         ##print(env.agent_position
@@ -229,12 +227,13 @@ class trainer():
             # Logging
             for agent in env.agents:
                 reward_history[agent].append(rewards[agent])
+                
             uncertainty_history.append(env.tot_unc)
         #  logging.info(f"Rewards: {list(rewards.values())}")
 
 
 if __name__=="__main__":
-    homunculus=trainer(max_iters=100,model=models_no_collision,max_moves=500)
+    homunculus=trainer(max_iters=1000,model=models_full_model,max_moves=500)
     nodes_for_data=[50]
     num_agents_for_testing=[4]
     for nn in nodes_for_data:
