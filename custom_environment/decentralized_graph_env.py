@@ -433,7 +433,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
             if self.graph.nodes[self.agent_position[agent]]["target"]==1 and self.graph.nodes[self.agent_position[agent]]["uncertainty"]>0:
                 self.momentum[agent]+=1
             else:
-                self.momentum[agent]-=2
+                self.momentum[agent]-=1
             
             #if long_term!=0:
                 #print(long_term)
