@@ -430,7 +430,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
             ##print(f"mental map for agent {agent} is {self.mental_map[agent]}")
             self.tot_unc_agent[agent]+=sum(self.mental_map[agent].nodes[node]["uncertainty"] for node in range(self.num_nodes))
             ##print(f"tot unc of agent {agent} is {self.tot_unc_agent}")
-            if self.graph.nodes[self.agent_position[agent]]["uncertainty"]==1 and self.graph.nodes[self.agent_position[agent]]["uncertainty"]>0:
+            if self.graph.nodes[self.agent_position[agent]]["target"]==1 and self.graph.nodes[self.agent_position[agent]]["uncertainty"]>0:
                 self.momentum[agent]+=1
             else:
                 self.momentum[agent]-=2
