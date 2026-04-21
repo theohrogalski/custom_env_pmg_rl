@@ -5,7 +5,6 @@ import numpy as np
 import networkx as nx
 import random
 import os
-from filterpy.kalman import UnscentedKalmanFilter as ukf
 import gpytorch 
 import wandb
 from torch_geometric.utils import from_networkx
@@ -161,6 +160,8 @@ class GraphEnv(pettingzoo.ParallelEnv):
 
         self.tot_unc_agent={agent:0 for agent in self.possible_agents}
         self.avg_over_last_uncertainties={agent:0 for agent in self.possible_agents}
+        self.freezing = {agent:0 for agent in self.possible_agents}
+        self.freeze_steps = 20
     def select_graph(self, load_param:int, loaded_graphml_name:str, output_name:str="default_name",):
         """
         Docstring for select_graph
@@ -320,8 +321,11 @@ class GraphEnv(pettingzoo.ParallelEnv):
         # Loop through
 
         for agent in self.agents:
+            if self.freezing[agent]==0:
+                self.agent_position[agent] = action[agent].item()
+
             self.last_state[agent] = self.agent_position[agent]
-            self.agent_position[agent] = action[agent].item()
+            
             ##print(f"{ self.agent_position[agent]} {agent}")
             count=0                
         agent_pos_vals = self.agent_position.values()
@@ -346,14 +350,16 @@ class GraphEnv(pettingzoo.ParallelEnv):
                 
         for agent in self.agents:   
             #spread_out_term=-1
+
             if self.agent_to_clearing_cleared[agent]==2:
                 self.agent_to_clearing_cleared[agent]=0
 
-            if self.agent_to_clearing_cleared[agent]==1 and self.graph.nodes[self.agent_position[agent]]["uncertainty"]==0:
+            elif self.agent_to_clearing_cleared[agent]==1 and self.graph.nodes[self.agent_position[agent]]["uncertainty"]==0:
                 self.agent_to_clearing_cleared[agent]=2
-
-            if self.graph.nodes[self.agent_position[agent]]["target"]==1 and self.graph.nodes[self.agent_position[agent]]["uncertainty"]>0:
+                self.freezing[agent]=0
+            elif self.graph.nodes[self.agent_position[agent]]["target"]==1 and self.graph.nodes[self.agent_position[agent]]["uncertainty"]>0:
                 self.agent_to_clearing_cleared[agent]=1
+                self.freezing[agent]=1
             ego = nx.ego_graph(self.graph, int(self.agent_position[agent]), radius=2)
            # ego_nodes_list:list = [ego.nodes()]
             self.agent_to_two_recent_unc[agent][0] = self.graph.nodes[self.agent_position[agent]]["uncertainty"]
@@ -427,7 +433,8 @@ class GraphEnv(pettingzoo.ParallelEnv):
             if self.graph.nodes[self.agent_position[agent]]["uncertainty"]==1 and self.graph.nodes[self.agent_position[agent]]["uncertainty"]>0:
                 self.momentum[agent]+=1
             else:
-                self.momentum[agent]-=0.1
+                self.momentum[agent]-=2
+            
             #if long_term!=0:
                 #print(long_term)
                 #print(self.avg_over_last_uncertainties[agent])
@@ -443,7 +450,7 @@ class GraphEnv(pettingzoo.ParallelEnv):
         for item in self.truncations.values():
             if item==True:
                 print("terminations reached, error!")
-
+        
         self.num_moves+=1
         ##print(self.num_moves)
         """if self.render_mode == "human":

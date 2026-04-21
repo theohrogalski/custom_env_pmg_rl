@@ -118,7 +118,7 @@ class trainer():
         import logging
         torch.manual_seed(random_seed)
         logger = logging.getLogger("logger_train")
-        logging.basicConfig(filename='training_run.log', level=logging.INFO)
+        logging.basicConfig(filename='freezing_train.log', level=logging.INFO)
     #print("logger created")
         logger.info("------ Logger Started ------")
         logger.info("num_moves, agent, reward, total_loss, action, uncertainty, value, next_val, occ_nodes, unc_loss")
